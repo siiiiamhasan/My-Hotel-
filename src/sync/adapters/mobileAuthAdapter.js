@@ -1,13 +1,148 @@
 import { Preferences } from '@capacitor/preferences';
+import { App } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import { SYNC_STATUS, GOOGLE_SCOPES } from '../types';
 import googleConfigJson from '../../../config/google-config.json';
 
 const TOKEN_STORAGE_KEY = 'my_hotel_google_auth_tokens_v1';
 const CONFIG_STORAGE_KEY = 'google_custom_config';
+const PKCE_VERIFIER_KEY = 'pkce_code_verifier_temp';
+
+// Helper to construct Google Reverse DNS redirect URI (RFC 8252 for Native Apps)
+function getReverseDnsRedirectUri(clientId) {
+  if (!clientId) return 'com.siamhasan.myhotel:/oauth2redirect';
+  const prefix = clientId.replace('.apps.googleusercontent.com', '').trim();
+  return `com.googleusercontent.apps.${prefix}:/oauth2redirect`;
+}
+
+// Helper to generate base64url random bytes
+function generateRandomString(length = 32) {
+  const array = new Uint8Array(length);
+  if (typeof window !== 'undefined' && window.crypto) {
+    window.crypto.getRandomValues(array);
+  }
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// Helper to compute SHA-256 code challenge
+async function generateCodeChallenge(verifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await window.crypto.subtle.digest('SHA-256', data);
+  const bytes = new Uint8Array(digest);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
 
 export class MobileAuthAdapter {
   constructor() {
     this.bundledConfig = googleConfigJson || {};
+    this.deepLinkListenerAttached = false;
+    this.pendingAuthCallback = null;
+
+    this.initDeepLinkListener();
+  }
+
+  initDeepLinkListener() {
+    if (typeof window !== 'undefined' && !this.deepLinkListenerAttached) {
+      try {
+        App.addListener('appUrlOpen', async (data) => {
+          if (data && data.url) {
+            try {
+              await Browser.close();
+            } catch (e) {}
+
+            let code = null;
+            let error = null;
+
+            const matchCode = data.url.match(/[?&]code=([^&#]+)/);
+            if (matchCode) {
+              code = decodeURIComponent(matchCode[1]);
+            }
+            const matchError = data.url.match(/[?&]error=([^&#]+)/);
+            if (matchError) {
+              error = decodeURIComponent(matchError[1]);
+            }
+
+            if (error) {
+              if (this.pendingAuthCallback?.onError) {
+                this.pendingAuthCallback.onError(new Error(error));
+              }
+              return;
+            }
+
+            if (code) {
+              await this.handleAuthCodeExchange(code);
+            }
+          }
+        });
+        this.deepLinkListenerAttached = true;
+      } catch (e) {
+        console.warn('App deepLink listener skipped:', e);
+      }
+    }
+  }
+
+  async handleAuthCodeExchange(code) {
+    try {
+      const config = await this.getConfig();
+      const clientId = config.desktopClientId || config.clientId || config.androidClientId;
+      const clientSecret = config.desktopClientSecret || config.clientSecret || '';
+
+      const { value: verifier } = await Preferences.get({ key: PKCE_VERIFIER_KEY });
+      const redirectUri = getReverseDnsRedirectUri(clientId);
+
+      const bodyParams = {
+        client_id: clientId,
+        code: code,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      };
+
+      if (verifier) {
+        bodyParams.code_verifier = verifier;
+      }
+      if (clientSecret) {
+        bodyParams.client_secret = clientSecret;
+      }
+
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(bodyParams),
+      });
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        throw new Error(`Token exchange failed: ${errText}`);
+      }
+
+      const tokenData = await tokenRes.json();
+      const tokens = {
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000,
+      };
+
+      await this.saveStoredTokens(tokens);
+
+      if (this.pendingAuthCallback?.onSuccess) {
+        this.pendingAuthCallback.onSuccess(tokens.accessToken);
+      }
+    } catch (err) {
+      console.error('Auth code exchange error:', err);
+      if (this.pendingAuthCallback?.onError) {
+        this.pendingAuthCallback.onError(err);
+      }
+    } finally {
+      await Preferences.remove({ key: PKCE_VERIFIER_KEY });
+    }
   }
 
   async getConfig() {
@@ -70,13 +205,47 @@ export class MobileAuthAdapter {
   async login(onTokenReceived, onError) {
     const config = await this.getConfig();
     const clientId = config.clientId || config.androidClientId;
+    const clientSecret = config.clientSecret || '';
 
     if (!clientId) {
       if (onError) onError(new Error('Google Client ID is missing. Please configure credentials.'));
       return;
     }
 
-    if (typeof window !== 'undefined' && window.google && window.google.accounts) {
+    this.pendingAuthCallback = {
+      onSuccess: onTokenReceived,
+      onError: onError,
+    };
+
+    const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform();
+
+    if (isNative) {
+      try {
+        const nativeClientId = config.desktopClientId || config.clientId || config.androidClientId;
+        const verifier = generateRandomString(32);
+        const challenge = await generateCodeChallenge(verifier);
+        await Preferences.set({ key: PKCE_VERIFIER_KEY, value: verifier });
+
+        const redirectUri = getReverseDnsRedirectUri(nativeClientId);
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
+          client_id: nativeClientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          scope: GOOGLE_SCOPES,
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          access_type: 'offline',
+          prompt: 'consent',
+        }).toString();
+
+        await Browser.open({ url: authUrl, windowName: '_system' });
+        return;
+      } catch (err) {
+        console.error('Native OAuth browser launch error:', err);
+        if (onError) onError(err);
+      }
+    } else if (typeof window !== 'undefined' && window.google && window.google.accounts) {
+      // Web / Desktop Browser GIS Flow
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId,
@@ -129,6 +298,9 @@ export class MobileAuthAdapter {
         grant_type: 'refresh_token',
         refresh_token: tokens.refreshToken,
       });
+      if (config.clientSecret) {
+        params.append('client_secret', config.clientSecret);
+      }
 
       const response = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
@@ -174,7 +346,6 @@ export class MobileAuthAdapter {
       return { token: null, status: SYNC_STATUS.AUTH_ERROR };
     }
 
-    // Token expired and no refresh token available
     return { token: null, status: SYNC_STATUS.AUTH_ERROR };
   }
 }

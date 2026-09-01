@@ -6,6 +6,7 @@ const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3';
 export class GoogleDriveService {
   /**
    * Search for database file on Google Drive (both appDataFolder and drive root/file space)
+   * Guaranteed single master file: finds all duplicates, picks newest, and cleans up older duplicates.
    */
   static async findDatabaseFile(accessToken) {
     const filenames = [DB_FILENAME, 'business-management-data.json', 'restaurant_master_db.json'];
@@ -14,7 +15,7 @@ export class GoogleDriveService {
       try {
         const query = encodeURIComponent(`name = '${name}' and trashed = false`);
         const res = await fetch(
-          `${DRIVE_BASE_URL}/files?q=${query}&spaces=drive,appDataFolder&fields=files(id,name,modifiedTime,size)&pageSize=1`,
+          `${DRIVE_BASE_URL}/files?q=${query}&spaces=drive,appDataFolder&orderBy=modifiedTime desc&fields=files(id,name,modifiedTime,size)&pageSize=20`,
           {
             headers: { Authorization: `Bearer ${accessToken}` },
           }
@@ -23,7 +24,20 @@ export class GoogleDriveService {
         if (res.ok) {
           const data = await res.json();
           if (data.files && data.files.length > 0) {
-            return data.files[0];
+            const masterFile = data.files[0];
+
+            // If there are duplicate files on Google Drive with the same name, clean up the older ones
+            if (data.files.length > 1) {
+              const duplicates = data.files.slice(1);
+              duplicates.forEach(dup => {
+                fetch(`${DRIVE_BASE_URL}/files/${dup.id}`, {
+                  method: 'DELETE',
+                  headers: { Authorization: `Bearer ${accessToken}` },
+                }).catch(e => console.warn(`Failed to clean duplicate drive file ${dup.id}:`, e));
+              });
+            }
+
+            return masterFile;
           }
         }
       } catch (e) {
@@ -60,11 +74,22 @@ export class GoogleDriveService {
    * Multipart Upload: Create new file or Update (PATCH) existing file on Drive
    */
   static async uploadDatabase(data, accessToken, existingFileId = null) {
+    let targetFileId = existingFileId;
+
+    // Safety check: Always verify if file already exists in Drive to prevent creating multiple files
+    if (!targetFileId) {
+      const existing = await GoogleDriveService.findDatabaseFile(accessToken);
+      if (existing && existing.id) {
+        targetFileId = existing.id;
+      }
+    }
+
     const fileContent = JSON.stringify(data, null, 2);
     const metadata = {
       name: DB_FILENAME,
       mimeType: 'application/json',
       description: 'Master Accounting Database for My Hotel & Restaurant Manager',
+      parents: ['appDataFolder'],
     };
 
     const boundary = '-------314159265358979323846';
@@ -80,12 +105,12 @@ export class GoogleDriveService {
       fileContent +
       closeDelimiter;
 
-    const url = existingFileId
-      ? `${DRIVE_UPLOAD_URL}/files/${existingFileId}?uploadType=multipart`
+    const url = targetFileId
+      ? `${DRIVE_UPLOAD_URL}/files/${targetFileId}?uploadType=multipart`
       : `${DRIVE_UPLOAD_URL}/files?uploadType=multipart`;
 
     const res = await fetch(url, {
-      method: existingFileId ? 'PATCH' : 'POST',
+      method: targetFileId ? 'PATCH' : 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': `multipart/related; boundary=${boundary}`,

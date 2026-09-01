@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { ShieldCheck, TrendingUp, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { ShieldCheck, TrendingUp, HelpCircle, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
 import { formatCurrency } from '../../utils/accounting';
 
 export const BreakevenCard = ({ roiData }) => {
   const [showFormula, setShowFormula] = useState(false);
   const {
     initial_capital,
+    base_initial_capital = 0,
+    total_fixed_assets_capex = 0,
     cumulative_daily_profit,
     total_bills_paid,
     total_owner_withdrawn,
@@ -17,12 +19,16 @@ export const BreakevenCard = ({ roiData }) => {
     total_all_time_market,
   } = roiData;
 
+  const hasInvestment = initial_capital > 0;
   const isPositiveProgress = net_recovered > 0;
-  const statusColor = is_breakeven_reached 
-    ? 'var(--primary)' 
-    : isPositiveProgress 
-      ? 'var(--amber)' 
-      : 'var(--rose)';
+  
+  const statusColor = !hasInvestment
+    ? '#64748B'
+    : is_breakeven_reached 
+      ? 'var(--primary)' 
+      : isPositiveProgress 
+        ? 'var(--amber)' 
+        : 'var(--rose)';
 
   return (
     <div
@@ -30,7 +36,7 @@ export const BreakevenCard = ({ roiData }) => {
       style={{
         padding: '16px',
         marginBottom: '16px',
-        border: `1.5px solid ${is_breakeven_reached ? 'rgba(5, 150, 105, 0.4)' : 'rgba(217, 119, 6, 0.3)'}`,
+        border: `1.5px solid ${!hasInvestment ? '#E2E8F0' : is_breakeven_reached ? 'rgba(5, 150, 105, 0.4)' : 'rgba(217, 119, 6, 0.3)'}`,
         backgroundColor: '#FFFFFF',
       }}
     >
@@ -48,8 +54,10 @@ export const BreakevenCard = ({ roiData }) => {
           }}>
             {is_breakeven_reached ? (
               <ShieldCheck size={18} color="var(--primary)" />
-            ) : (
+            ) : hasInvestment ? (
               <TrendingUp size={18} color={statusColor} />
+            ) : (
+              <CheckCircle size={18} color="#64748B" />
             )}
           </div>
           <div>
@@ -57,7 +65,11 @@ export const BreakevenCard = ({ roiData }) => {
               Capital Investment & ROI Status
             </span>
             <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-              {is_breakeven_reached ? 'Pure Profit Phase (+)' : 'Capital Recovery Phase (-)'}
+              {!hasInvestment
+                ? 'No Setup Capital Declared (৳0)'
+                : is_breakeven_reached
+                ? 'Pure Profit Phase (+)'
+                : 'Capital Recovery Phase (-)'}
             </div>
           </div>
         </div>
@@ -67,11 +79,15 @@ export const BreakevenCard = ({ roiData }) => {
           fontWeight: 900,
           padding: '4px 10px',
           borderRadius: 10,
-          backgroundColor: is_breakeven_reached ? 'var(--bg-card-secondary)' : 'var(--bg-card-secondary)',
-          color: is_breakeven_reached ? 'var(--text-main)' : 'var(--text-secondary)',
+          backgroundColor: !hasInvestment ? '#F1F5F9' : is_breakeven_reached ? 'var(--primary-light)' : 'var(--bg-card-secondary)',
+          color: !hasInvestment ? '#64748B' : is_breakeven_reached ? 'var(--primary-dark)' : 'var(--text-secondary)',
           letterSpacing: '0.4px',
         }}>
-          {is_breakeven_reached ? '(+) 100% PROFIT' : `${breakeven_percent}% RECOVERED`}
+          {!hasInvestment
+            ? '0% RECOVERED'
+            : is_breakeven_reached
+            ? '(+) 100% PROFIT'
+            : `${breakeven_percent}% RECOVERED`}
         </span>
       </div>
 
@@ -88,27 +104,54 @@ export const BreakevenCard = ({ roiData }) => {
       }}>
         <div>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>
-            Total Initial Setup Cost
+            Total Setup Cost
           </div>
           <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--text-main)' }}>
             {formatCurrency(initial_capital)}
           </div>
           <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
-            Original hotel investment
+            Capital + Fixed CapEx
           </div>
         </div>
 
         <div style={{ borderLeft: '1.5px solid #E2E8F0', paddingLeft: '12px' }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>
-            {is_breakeven_reached ? 'Net Lifetime Profit' : 'Remaining To Breakeven'}
+            {!hasInvestment
+              ? 'Net Position'
+              : is_breakeven_reached
+              ? 'Net Lifetime Profit'
+              : 'Remaining To Breakeven'}
           </div>
-          <div style={{ fontSize: 17, fontWeight: 900, color: is_breakeven_reached ? 'var(--primary)' : 'var(--rose)' }}>
-            {is_breakeven_reached
+          <div style={{
+            fontSize: 17,
+            fontWeight: 900,
+            color: !hasInvestment
+              ? 'var(--text-main)'
+              : is_breakeven_reached
+              ? 'var(--primary)'
+              : 'var(--rose)',
+          }}>
+            {!hasInvestment
               ? formatCurrency(net_recovered, true)
+              : is_breakeven_reached
+              ? formatCurrency(net_recovered - initial_capital, true)
               : `-${formatCurrency(remaining_to_breakeven)}`}
           </div>
-          <div style={{ fontSize: 10.5, color: is_breakeven_reached ? 'var(--text-main)' : 'var(--rose)', fontWeight: 700, marginTop: 2 }}>
-            {is_breakeven_reached ? 'Pure Surplus (+)' : `৳${remaining_to_breakeven.toLocaleString()} left (-)`}
+          <div style={{
+            fontSize: 10.5,
+            color: !hasInvestment
+              ? 'var(--text-muted)'
+              : is_breakeven_reached
+              ? 'var(--primary)'
+              : 'var(--rose)',
+            fontWeight: 700,
+            marginTop: 2,
+          }}>
+            {!hasInvestment
+              ? 'Clean ledger'
+              : is_breakeven_reached
+              ? 'Pure Surplus (+)'
+              : `৳${remaining_to_breakeven.toLocaleString()} left (-)`}
           </div>
         </div>
       </div>
@@ -127,7 +170,7 @@ export const BreakevenCard = ({ roiData }) => {
         }}>
           <div style={{
             height: '100%',
-            width: `${Math.min(100, Math.max(2, breakeven_percent))}%`,
+            width: `${Math.min(100, Math.max(0, breakeven_percent))}%`,
             backgroundColor: statusColor,
             borderRadius: 5,
             transition: 'width 0.6s ease',

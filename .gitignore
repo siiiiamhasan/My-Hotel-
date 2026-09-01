@@ -47,5 +47,7 @@ config/google-config.json
 
 # Binaries and local env
 *.apk
+*.exe
+released/
 .env
 

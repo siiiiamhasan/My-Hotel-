@@ -140,7 +140,7 @@ export const DashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => {
           </div>
         </div>
 
-        {/* 6-Step Breakdown Grid */}
+        {/* Financial Breakdown Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: 11 }}>
           <div style={{ backgroundColor: '#F8FAFC', padding: '7px 9px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
             <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700 }}>1. Total Sell (মোট বিক্রি)</div>
@@ -178,11 +178,20 @@ export const DashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => {
           </div>
 
           <div style={{ backgroundColor: '#F8FAFC', padding: '7px 9px', borderRadius: 8, border: '1px solid #E2E8F0' }}>
-            <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700 }}>6. Fixed Bills Paid (বিল)</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700 }}>6. Monthly Bills Paid (বিল)</div>
             <div style={{ fontWeight: 800, color: 'var(--amber)', marginTop: 2 }}>
               -{formatCurrency(periodSummary.total_bills_paid)}
             </div>
           </div>
+
+          {periodSummary.total_fixed_assets > 0 && (
+            <div style={{ backgroundColor: '#F8FAFC', padding: '7px 9px', borderRadius: 8, border: '1px solid #E2E8F0', gridColumn: 'span 2' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700 }}>7. Fixed Equipment CapEx (ফিক্সড সম্পদ)</div>
+              <div style={{ fontWeight: 800, color: 'var(--rose)', marginTop: 2 }}>
+                -{formatCurrency(periodSummary.total_fixed_assets)}
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
 

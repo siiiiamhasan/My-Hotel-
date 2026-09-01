@@ -1,7 +1,7 @@
 {
   "name": "my-hotel-manager",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
@@ -38,6 +38,8 @@
   },
   "dependencies": {
     "@capacitor/android": "^7.0.1",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "^7.0.5",
     "@capacitor/cli": "^7.0.1",
     "@capacitor/core": "^7.0.1",
     "@capacitor/preferences": "^7.0.0",

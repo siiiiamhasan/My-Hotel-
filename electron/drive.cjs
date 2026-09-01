@@ -7,6 +7,7 @@ const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3';
 /**
  * Scan & Find Database File on Google Drive
  * Checks primary name first, then checks legacy names for compatibility.
+ * Deduplication: picks the newest master file and cleans up older duplicates.
  */
 async function findFileId(accessToken) {
   const filenamesToSearch = [PRIMARY_DB_FILENAME, ...LEGACY_DB_FILENAMES];
@@ -15,7 +16,7 @@ async function findFileId(accessToken) {
     try {
       const query = encodeURIComponent(`name = '${name}' and trashed = false`);
       const res = await fetch(
-        `${DRIVE_BASE_URL}/files?q=${query}&spaces=drive,appDataFolder&fields=files(id,name,modifiedTime,size)&pageSize=1`,
+        `${DRIVE_BASE_URL}/files?q=${query}&spaces=drive,appDataFolder&orderBy=modifiedTime desc&fields=files(id,name,modifiedTime,size)&pageSize=20`,
         {
           headers: { Authorization: `Bearer ${accessToken}` },
         }
@@ -24,7 +25,20 @@ async function findFileId(accessToken) {
       if (res.ok) {
         const data = await res.json();
         if (data.files && data.files.length > 0) {
-          return data.files[0].id;
+          const masterFile = data.files[0];
+
+          // If there are duplicate files on Google Drive with the same name, clean up the older ones
+          if (data.files.length > 1) {
+            const duplicates = data.files.slice(1);
+            duplicates.forEach(dup => {
+              fetch(`${DRIVE_BASE_URL}/files/${dup.id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${accessToken}` },
+              }).catch(e => console.warn(`Failed to clean duplicate drive file ${dup.id}:`, e));
+            });
+          }
+
+          return masterFile.id;
         }
       }
     } catch (err) {
@@ -61,11 +75,18 @@ async function downloadFile(accessToken, fileId) {
  * Create New Database File on Google Drive (Multipart Upload)
  */
 async function createFile(accessToken, data) {
+  // Safety: Verify if file already exists before creating duplicate
+  const existingId = await findFileId(accessToken);
+  if (existingId) {
+    return await updateFile(accessToken, existingId, data);
+  }
+
   const fileContent = JSON.stringify(data, null, 2);
   const metadata = {
     name: PRIMARY_DB_FILENAME,
     mimeType: 'application/json',
     description: 'Hotel & Restaurant Management Master Database',
+    parents: ['appDataFolder'],
   };
 
   const boundary = '-------314159265358979323846';
@@ -159,6 +180,7 @@ async function fetchUserProfile(accessToken) {
 
 module.exports = {
   PRIMARY_DB_FILENAME,
+  LEGACY_DB_FILENAMES,
   findFileId,
   downloadFile,
   createFile,

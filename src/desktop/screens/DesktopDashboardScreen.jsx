@@ -255,7 +255,7 @@ export const DesktopDashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => 
             </div>
           </div>
 
-          {/* 6-Step Breakdown Grid */}
+          {/* Financial Breakdown Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', fontSize: 12 }}>
             <div style={{ backgroundColor: '#F8FAFC', padding: '10px 12px', borderRadius: 10, border: '1px solid #E2E8F0' }}>
               <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 700 }}>1. Total Sell (মোট বিক্রি)</div>
@@ -293,11 +293,20 @@ export const DesktopDashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => 
             </div>
 
             <div style={{ backgroundColor: '#F8FAFC', padding: '10px 12px', borderRadius: 10, border: '1px solid #E2E8F0' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 700 }}>6. Fixed Bills Paid (বিল)</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 700 }}>6. Monthly Bills Paid (বিল)</div>
               <div style={{ fontWeight: 900, fontSize: 15, color: 'var(--amber)', marginTop: 3 }}>
                 -{formatCurrency(periodSummary.total_bills_paid)}
               </div>
             </div>
+
+            {periodSummary.total_fixed_assets > 0 && (
+              <div style={{ backgroundColor: '#F8FAFC', padding: '10px 12px', borderRadius: 10, border: '1px solid #E2E8F0', gridColumn: 'span 3' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 700 }}>7. Fixed Equipment CapEx (ফিক্সড সম্পদ)</div>
+                <div style={{ fontWeight: 900, fontSize: 15, color: 'var(--rose)', marginTop: 3 }}>
+                  -{formatCurrency(periodSummary.total_fixed_assets)}
+                </div>
+              </div>
+            )}
           </div>
         </motion.div>
 
@@ -310,17 +319,17 @@ export const DesktopDashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => 
                   width: 36,
                   height: 36,
                   borderRadius: 10,
-                  backgroundColor: roiData.is_breakeven_reached ? 'var(--primary-light)' : 'var(--amber-light)',
+                  backgroundColor: roiData.initial_capital === 0 ? '#F1F5F9' : roiData.is_breakeven_reached ? 'var(--primary-light)' : 'var(--amber-light)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
-                  <ShieldCheck size={20} color={roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--amber)'} />
+                  <ShieldCheck size={20} color={roiData.initial_capital === 0 ? '#64748B' : roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--amber)'} />
                 </div>
                 <div>
                   <h3 style={{ fontSize: 15.5, fontWeight: 900, color: 'var(--text-main)' }}>Capital ROI Status</h3>
                   <p style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                    {roiData.is_breakeven_reached ? 'Pure Profit Phase (+)' : 'Capital Recovery Phase (-)'}
+                    {roiData.initial_capital === 0 ? 'No Setup Capital Declared' : roiData.is_breakeven_reached ? 'Pure Profit Phase (+)' : 'Capital Recovery Phase (-)'}
                   </p>
                 </div>
               </div>
@@ -330,10 +339,10 @@ export const DesktopDashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => 
                 fontWeight: 900,
                 padding: '4px 10px',
                 borderRadius: 8,
-                backgroundColor: roiData.is_breakeven_reached ? 'var(--primary-light)' : 'var(--amber-light)',
-                color: roiData.is_breakeven_reached ? 'var(--primary-dark)' : 'var(--amber)',
+                backgroundColor: roiData.initial_capital === 0 ? '#F1F5F9' : roiData.is_breakeven_reached ? 'var(--primary-light)' : 'var(--amber-light)',
+                color: roiData.initial_capital === 0 ? '#64748B' : roiData.is_breakeven_reached ? 'var(--primary-dark)' : 'var(--amber)',
               }}>
-                {roiData.is_breakeven_reached ? '🟢 (+) 100% PROFIT' : `🟡 ${roiData.breakeven_percent}% RECOVERED`}
+                {roiData.initial_capital === 0 ? '0% RECOVERED' : roiData.is_breakeven_reached ? '🟢 (+) 100% PROFIT' : `🟡 ${roiData.breakeven_percent}% RECOVERED`}
               </span>
             </div>
 
@@ -350,24 +359,38 @@ export const DesktopDashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => 
             }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Initial Setup Capital
+                  Total Setup Capital
                 </div>
                 <div style={{ fontSize: 19, fontWeight: 900, color: 'var(--text-main)', marginTop: 3 }}>
                   {formatCurrency(roiData.initial_capital)}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                  Capital + Fixed CapEx
                 </div>
               </div>
 
               <div style={{ borderLeft: '1.5px solid #E2E8F0', paddingLeft: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  {roiData.is_breakeven_reached ? 'Net Lifetime Profit' : 'Remaining To Breakeven'}
+                  {roiData.initial_capital === 0 ? 'Net Position' : roiData.is_breakeven_reached ? 'Net Lifetime Profit' : 'Remaining To Breakeven'}
                 </div>
                 <div style={{
                   fontSize: 19,
                   fontWeight: 900,
-                  color: roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--rose)',
+                  color: roiData.initial_capital === 0 ? 'var(--text-main)' : roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--rose)',
                   marginTop: 3,
                 }}>
-                  {roiData.is_breakeven_reached ? formatCurrency(roiData.net_recovered, true) : `-${formatCurrency(roiData.remaining_to_breakeven)}`}
+                  {roiData.initial_capital === 0
+                    ? formatCurrency(roiData.net_recovered, true)
+                    : roiData.is_breakeven_reached
+                    ? formatCurrency(roiData.net_recovered - roiData.initial_capital, true)
+                    : `-${formatCurrency(roiData.remaining_to_breakeven)}`}
+                </div>
+                <div style={{ fontSize: 11, color: roiData.initial_capital === 0 ? 'var(--text-muted)' : roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--rose)', fontWeight: 700, marginTop: 2 }}>
+                  {roiData.initial_capital === 0
+                    ? 'Clean ledger'
+                    : roiData.is_breakeven_reached
+                    ? 'Pure Surplus (+)'
+                    : `৳${roiData.remaining_to_breakeven.toLocaleString()} left (-)`}
                 </div>
               </div>
             </div>
@@ -376,15 +399,15 @@ export const DesktopDashboardScreen = ({ onNavigateTab, onOpenQuickAction }) => 
             <div style={{ marginBottom: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 5 }}>
                 <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>Investment Payback Progress:</span>
-                <span style={{ fontWeight: 900, color: roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--amber)' }}>
+                <span style={{ fontWeight: 900, color: roiData.initial_capital === 0 ? '#64748B' : roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--amber)' }}>
                   {roiData.breakeven_percent}%
                 </span>
               </div>
               <div style={{ height: 10, backgroundColor: '#E2E8F0', borderRadius: 5, overflow: 'hidden' }}>
                 <div style={{
                   height: '100%',
-                  width: `${Math.min(100, Math.max(2, roiData.breakeven_percent))}%`,
-                  backgroundColor: roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--amber)',
+                  width: `${Math.min(100, Math.max(0, roiData.breakeven_percent))}%`,
+                  backgroundColor: roiData.initial_capital === 0 ? '#64748B' : roiData.is_breakeven_reached ? 'var(--primary)' : 'var(--amber)',
                   borderRadius: 5,
                   transition: 'width 0.6s ease',
                 }} />

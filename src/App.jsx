@@ -59,10 +59,92 @@ const RootApp = () => {
   return <MobileApp />;
 };
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Unhandled UI Exception caught by ErrorBoundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: '#F8FAFC',
+          padding: '24px',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          color: '#0F172A',
+          textAlign: 'center',
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: 16,
+            padding: '32px 24px',
+            maxWidth: 480,
+            width: '100%',
+            boxShadow: '0 10px 25px -5px rgba(0,0,0,0.08)',
+            border: '1px solid #E2E8F0',
+          }}>
+            <div style={{
+              width: 52,
+              height: 52,
+              borderRadius: '50%',
+              backgroundColor: '#FEF2F2',
+              color: '#DC2626',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+              fontSize: 24,
+              fontWeight: 'bold',
+            }}>
+              !
+            </div>
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Something went wrong</h2>
+            <p style={{ fontSize: 13, color: '#64748B', lineHeight: 1.5, marginBottom: 20 }}>
+              {this.state.error?.message || 'An unexpected rendering error occurred.'}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                backgroundColor: '#059669',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 10,
+                padding: '10px 20px',
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <AppDataProvider>
-      <RootApp />
-    </AppDataProvider>
+    <ErrorBoundary>
+      <AppDataProvider>
+        <RootApp />
+      </AppDataProvider>
+    </ErrorBoundary>
   );
 }

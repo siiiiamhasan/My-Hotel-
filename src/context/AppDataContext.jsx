@@ -119,9 +119,6 @@ export const AppDataProvider = ({ children }) => {
     };
   }, [isElectron]);
 
-  /**
-   * Universal State Updater
-   * 1. Updates React state immediately
   const createBlankDayRecord = (date, records = []) => {
     let defaultFloat = 0;
     if (records.length > 0) {
@@ -518,6 +515,29 @@ export const AppDataProvider = ({ children }) => {
     });
   };
 
+  const updateWastageItem = (date, wastageId, updatedFields) => {
+    updateDataState((prev) => {
+      const records = (prev.daily_records || []).map((rec) => {
+        if (rec.wastage_demurrage && rec.wastage_demurrage.some((w) => w.id === wastageId)) {
+          return {
+            ...rec,
+            wastage_demurrage: rec.wastage_demurrage.map((w) =>
+              w.id === wastageId
+                ? {
+                    ...w,
+                    ...updatedFields,
+                    amount: updatedFields.amount !== undefined ? Number(updatedFields.amount || 0) : w.amount,
+                  }
+                : w
+            ),
+          };
+        }
+        return rec;
+      });
+      return { ...prev, daily_records: records };
+    });
+  };
+
   // --- ACTIONS: NIGHT CLOSING ---
   const submitNightClosing = (date, closingDetails) => {
     updateDataState((prev) => {
@@ -552,11 +572,23 @@ export const AppDataProvider = ({ children }) => {
     });
   };
 
+  const resetNightClosing = (date) => {
+    updateDataState((prev) => {
+      const records = (prev.daily_records || []).map((rec) => {
+        if (rec.date === date) {
+          return { ...rec, night_closing: null };
+        }
+        return rec;
+      });
+      return { ...prev, daily_records: records };
+    });
+  };
+
   // --- ACTIONS: FIXED ASSETS & BILLS ---
   const addFixedAsset = (assetObj) => {
     updateDataState((prev) => {
       const newAsset = {
-        id: `fa_${Date.now()}`,
+        id: `fa_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         item_name: assetObj.item_name,
         amount: Number(assetObj.amount || 0),
         date: assetObj.date || new Date().toISOString().split('T')[0],
@@ -566,6 +598,21 @@ export const AppDataProvider = ({ children }) => {
         ...prev,
         fixed_assets: [...(prev.fixed_assets || []), newAsset]
       };
+    });
+  };
+
+  const updateFixedAsset = (assetId, updatedFields) => {
+    updateDataState((prev) => {
+      const updated = (prev.fixed_assets || []).map((a) =>
+        a.id === assetId
+          ? {
+              ...a,
+              ...updatedFields,
+              amount: updatedFields.amount !== undefined ? Number(updatedFields.amount || 0) : a.amount,
+            }
+          : a
+      );
+      return { ...prev, fixed_assets: updated };
     });
   };
 
@@ -579,7 +626,7 @@ export const AppDataProvider = ({ children }) => {
   const addMonthlyBill = (billObj) => {
     updateDataState((prev) => {
       const newBill = {
-        id: `mb_${Date.now()}`,
+        id: `mb_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         month_year: billObj.month_year || new Date().toISOString().slice(0, 7),
         bill_type: billObj.bill_type,
         amount: Number(billObj.amount || 0),
@@ -590,6 +637,21 @@ export const AppDataProvider = ({ children }) => {
         ...prev,
         monthly_bills: [...(prev.monthly_bills || []), newBill]
       };
+    });
+  };
+
+  const updateMonthlyBill = (billId, updatedFields) => {
+    updateDataState((prev) => {
+      const updated = (prev.monthly_bills || []).map((b) =>
+        b.id === billId
+          ? {
+              ...b,
+              ...updatedFields,
+              amount: updatedFields.amount !== undefined ? Number(updatedFields.amount || 0) : b.amount,
+            }
+          : b
+      );
+      return { ...prev, monthly_bills: updated };
     });
   };
 
@@ -612,6 +674,16 @@ export const AppDataProvider = ({ children }) => {
     });
   };
 
+  const updateInitialCapital = (amount) => {
+    updateDataState((prev) => ({
+      ...prev,
+      restaurant_info: {
+        ...(prev.restaurant_info || {}),
+        initial_capital_investment: Number(amount || 0),
+      },
+    }));
+  };
+
   // --- ACTIONS: RESTAURANT SETTINGS & GOOGLE CLOUD SYNC ---
   const updateRestaurantInfo = (fields) => {
     updateDataState((prev) => ({
@@ -624,32 +696,68 @@ export const AppDataProvider = ({ children }) => {
   };
 
   /**
-   * Sign In with Google
+   * Universal Sign-In with Google Drive OAuth:
+   * Immediately searches Drive for hotel-management-data.json, attaches to it, and pulls cloud database.
    */
   const signInWithGoogle = async () => {
     if (isElectron && window.api?.signIn) {
+      setSyncStatus('syncing');
       const res = await window.api.signIn();
       if (res?.success) {
-        updateRestaurantInfo({
-          google_drive_connected: true,
-          google_account_email: res.userEmail,
-        });
+        setSyncStatus('synced');
+        setLastSyncedAt(new Date().toISOString());
+        if (res.data) {
+          setData(res.data);
+        } else {
+          updateRestaurantInfo({
+            google_drive_connected: true,
+            google_account_email: res.userEmail || 'Connected',
+            last_synced_at: new Date().toISOString(),
+          });
+        }
       }
       return res;
     } else {
-      // Fallback for Web/Mobile
+      // Mobile / Web flow
       return new Promise((resolve) => {
         const config = getGoogleConfig();
         startGoogleSignIn(
           config.clientId,
-          (token, profile) => {
-            updateRestaurantInfo({
-              google_drive_connected: true,
-              google_account_email: profile?.email || 'Connected',
-            });
-            resolve({ success: true, userEmail: profile?.email });
+          async (token, profile) => {
+            setSyncStatus('syncing');
+            let finalData = data;
+            
+            // 1. Immediately search Google Drive, find master JSON file, attach and pull
+            if (syncEngineRef.current) {
+              try {
+                const pullResult = await syncEngineRef.current.pullInitial(data);
+                if (pullResult?.success && pullResult?.data) {
+                  finalData = pullResult.data;
+                }
+              } catch (e) {
+                console.warn('Initial drive pull on signin failed:', e);
+              }
+            }
+
+            finalData = {
+              ...finalData,
+              restaurant_info: {
+                ...(finalData.restaurant_info || {}),
+                google_drive_connected: true,
+                google_account_email: profile?.email || 'Connected',
+                last_synced_at: new Date().toISOString(),
+              },
+            };
+
+            setData(finalData);
+            await saveStoredData(finalData);
+            setSyncStatus('synced');
+            setLastSyncedAt(new Date().toISOString());
+
+            resolve({ success: true, userEmail: profile?.email, data: finalData });
           },
           (err) => {
+            setSyncStatus('error');
             resolve({ success: false, error: err?.message || err });
           }
         );
@@ -760,13 +868,18 @@ export const AppDataProvider = ({ children }) => {
         updateStaffMember,
         deleteStaffMember,
         addWastageItem,
+        updateWastageItem,
         deleteWastageItem,
         submitNightClosing,
+        resetNightClosing,
         addFixedAsset,
+        updateFixedAsset,
         deleteFixedAsset,
         addMonthlyBill,
+        updateMonthlyBill,
         deleteMonthlyBill,
         toggleMonthlyBillPaid,
+        updateInitialCapital,
         updateRestaurantInfo,
         signInWithGoogle,
         triggerGoogleDriveSync,

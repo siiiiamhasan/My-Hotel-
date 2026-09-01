@@ -144,21 +144,20 @@ async function pullFromDrive() {
       const remoteData = await downloadFile(token, fileId);
       const localData = loadState();
 
-      const localTime = new Date(localData?.updatedAt || localData?.restaurant_info?.last_synced_at || 0).getTime();
-      const remoteTime = new Date(remoteData?.updatedAt || remoteData?.restaurant_info?.last_synced_at || 0).getTime();
+      // Granular entity-level merge: combine cloud master database with local records
+      const merged = resolveConflict(localData, remoteData);
+      saveState(merged);
+      broadcastDataUpdated(merged);
 
-      if (remoteTime > localTime) {
-        // Remote is genuinely newer -> update local
-        const merged = resolveConflict(localData, remoteData);
-        saveState(merged);
-        broadcastDataUpdated(merged);
-      } else if (localTime > remoteTime && localData) {
-        // Local has newer changes -> push local to Drive!
-        await updateFile(token, fileId, localData);
+      // Keep cloud file up to date with merged state
+      try {
+        await updateFile(token, fileId, merged);
+      } catch (e) {
+        console.warn('Post-pull remote update skipped:', e);
       }
 
       broadcastSyncStatus('synced');
-      return remoteData;
+      return merged;
     } else {
       // File not found on Drive yet, upload current local state
       const localData = loadState();
@@ -274,18 +273,41 @@ ipcMain.handle('state:save', async (_event, data) => {
 ipcMain.handle('auth:signIn', async () => {
   try {
     const tokens = await startDesktopPKCEAuth();
-    // After signing in, pull remote data or push local data
-    setTimeout(async () => {
-      await pullFromDrive();
-    }, 300);
+    
+    // 1. Immediately search Google Drive, find master JSON file, attach and pull
+    let currentData = loadState();
+    try {
+      const driveData = await pullFromDrive();
+      if (driveData) {
+        currentData = driveData;
+      }
+    } catch (e) {
+      console.warn('Initial pullFromDrive on signin failed:', e);
+    }
+
+    if (currentData) {
+      currentData.restaurant_info = {
+        ...(currentData.restaurant_info || {}),
+        google_drive_connected: true,
+        google_account_email: tokens.userEmail || currentData.restaurant_info?.google_account_email,
+        last_synced_at: new Date().toISOString(),
+      };
+      saveState(currentData);
+      broadcastDataUpdated(currentData);
+    }
+
+    broadcastSyncStatus('synced');
 
     return {
       success: true,
       userEmail: tokens.userEmail,
       userName: tokens.userName,
       userPicture: tokens.userPicture,
+      data: currentData,
     };
   } catch (err) {
+    console.error('auth:signIn failed:', err);
+    broadcastSyncStatus('error', err.message);
     return { success: false, error: err.message };
   }
 });
@@ -293,6 +315,15 @@ ipcMain.handle('auth:signIn', async () => {
 ipcMain.handle('auth:signOut', async () => {
   clearAuth();
   clearFileId();
+  const currentData = loadState();
+  if (currentData) {
+    currentData.restaurant_info = {
+      ...(currentData.restaurant_info || {}),
+      google_drive_connected: false,
+    };
+    saveState(currentData);
+    broadcastDataUpdated(currentData);
+  }
   broadcastSyncStatus('unauthenticated');
   return true;
 });
@@ -350,6 +381,8 @@ ipcMain.handle('oauth:logout', async () => {
   clearAuth();
   return true;
 });
+ipcMain.handle('auth:getTokens', async () => getTokens());
+ipcMain.handle('auth:refreshToken', async () => refreshDesktopAccessToken());
 
 app.whenReady().then(() => {
   createWindow();

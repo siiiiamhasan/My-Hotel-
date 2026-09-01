@@ -49,43 +49,67 @@ export class SyncEngine {
   }
 
   /**
-   * Conflict Resolution Strategy
-   *
-   * [MVP Strategy: Last-Write-Wins based on document updatedAt]
-   *
-   * TODO (Future Enhancement - Granular Entity Merge):
-   * When multiple devices (e.g. PC cashier & mobile manager) make concurrent updates:
-   * 1. Extract array collections (daily_records, monthly_fixed_expenses, family_members).
-   * 2. Key entities by unique ID (e.g., date for daily_records, id for expenses).
-   * 3. For matching records, compare item-level updatedAt timestamp to preserve field-level updates.
-   * 4. For new records present in either local or remote, union them into the merged dataset.
+   * Conflict Resolution Strategy: Granular Entity-Level Bidirectional Merge
+   * Merges records from both PC & Mobile into a single unified dataset.
    */
   resolveConflict(localData, remoteData) {
     if (!remoteData) return localData;
     if (!localData) return remoteData;
 
-    const localTime = new Date(localData?.updatedAt || localData?.restaurant_info?.last_synced_at || 0).getTime();
-    const remoteTime = new Date(remoteData?.updatedAt || remoteData?.restaurant_info?.last_synced_at || 0).getTime();
-
-    // If remote has newer changes, return remote
-    if (remoteTime > localTime) {
-      return {
-        ...remoteData,
-        restaurant_info: {
-          ...remoteData.restaurant_info,
-          google_drive_connected: true,
-          last_synced_at: new Date().toISOString(),
+    // Merge daily_records by date (union of all dates, newest record wins on conflict)
+    const recordMap = new Map();
+    (remoteData.daily_records || []).forEach(r => {
+      if (r && r.date) recordMap.set(r.date, r);
+    });
+    (localData.daily_records || []).forEach(r => {
+      if (r && r.date) {
+        const existing = recordMap.get(r.date);
+        if (!existing) {
+          recordMap.set(r.date, r);
+        } else {
+          const localTime = new Date(r.lastUpdated || r.updatedAt || localData.updatedAt || 0).getTime();
+          const remoteTime = new Date(existing.lastUpdated || existing.updatedAt || remoteData.updatedAt || 0).getTime();
+          recordMap.set(r.date, localTime >= remoteTime ? r : existing);
         }
-      };
-    }
+      }
+    });
+
+    const mergedDailyRecords = Array.from(recordMap.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    // Merge owners by id or name
+    const ownerMap = new Map();
+    (remoteData.owners || []).forEach(o => { if (o) ownerMap.set(o.id || o.name, o); });
+    (localData.owners || []).forEach(o => { if (o) ownerMap.set(o.id || o.name, o); });
+
+    // Merge staff by id or name
+    const staffMap = new Map();
+    (remoteData.staff || []).forEach(s => { if (s) staffMap.set(s.id || s.name, s); });
+    (localData.staff || []).forEach(s => { if (s) staffMap.set(s.id || s.name, s); });
+
+    // Merge fixed_assets by id
+    const assetMap = new Map();
+    (remoteData.fixed_assets || []).forEach(a => { if (a) assetMap.set(a.id, a); });
+    (localData.fixed_assets || []).forEach(a => { if (a) assetMap.set(a.id, a); });
+
+    // Merge monthly_bills by id
+    const billMap = new Map();
+    (remoteData.monthly_bills || []).forEach(b => { if (b) billMap.set(b.id, b); });
+    (localData.monthly_bills || []).forEach(b => { if (b) billMap.set(b.id, b); });
 
     return {
-      ...localData,
       restaurant_info: {
-        ...localData.restaurant_info,
+        ...(remoteData.restaurant_info || {}),
+        ...(localData.restaurant_info || {}),
         google_drive_connected: true,
         last_synced_at: new Date().toISOString(),
-      }
+      },
+      initial_investment: Number(localData.initial_investment || remoteData.initial_investment || 0),
+      owners: Array.from(ownerMap.values()),
+      staff: Array.from(staffMap.values()),
+      fixed_assets: Array.from(assetMap.values()),
+      monthly_bills: Array.from(billMap.values()),
+      daily_records: mergedDailyRecords,
+      updatedAt: new Date().toISOString(),
     };
   }
 

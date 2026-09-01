@@ -123,10 +123,12 @@ export const calculateDaySummary = (record) => {
 export const calculatePeriodSummary = (data, periodType = 'month', selectedDate = new Date().toISOString().split('T')[0]) => {
   const daily_records = data?.daily_records || [];
   const monthly_bills = data?.monthly_bills || [];
+  const fixed_assets = data?.fixed_assets || [];
   const staff = data?.staff || [];
 
   let filteredRecords = [];
   let filteredBills = [];
+  let filteredAssets = [];
   let periodLabel = '';
 
   const selectedYear = selectedDate.slice(0, 4);
@@ -136,6 +138,7 @@ export const calculatePeriodSummary = (data, periodType = 'month', selectedDate 
     periodLabel = `Daily (${selectedDate})`;
     filteredRecords = daily_records.filter(r => r.date === selectedDate);
     filteredBills = monthly_bills.filter(b => b.payment_date === selectedDate);
+    filteredAssets = fixed_assets.filter(a => a.date === selectedDate);
   } else if (periodType === 'week') {
     // 7-day window ending on selectedDate
     const [y, m, d] = selectedDate.split('-').map(Number);
@@ -149,6 +152,7 @@ export const calculatePeriodSummary = (data, periodType = 'month', selectedDate 
     periodLabel = `Weekly (${startStr} to ${endStr})`;
     filteredRecords = daily_records.filter(r => r.date >= startStr && r.date <= endStr);
     filteredBills = monthly_bills.filter(b => b.payment_date >= startStr && b.payment_date <= endStr);
+    filteredAssets = fixed_assets.filter(a => a.date >= startStr && a.date <= endStr);
   } else if (periodType === 'month') {
     const [y, m, d] = selectedDate.split('-').map(Number);
     const monthDate = new Date(y, m - 1, d || 1);
@@ -156,15 +160,18 @@ export const calculatePeriodSummary = (data, periodType = 'month', selectedDate 
     periodLabel = `Monthly (${monthName})`;
     filteredRecords = daily_records.filter(r => r.date && r.date.startsWith(selectedMonthKey));
     filteredBills = monthly_bills.filter(b => b.month_year === selectedMonthKey || (b.payment_date && b.payment_date.startsWith(selectedMonthKey)));
+    filteredAssets = fixed_assets.filter(a => a.date && a.date.startsWith(selectedMonthKey));
   } else if (periodType === 'year') {
     periodLabel = `Yearly (${selectedYear})`;
     filteredRecords = daily_records.filter(r => r.date && r.date.startsWith(selectedYear));
     filteredBills = monthly_bills.filter(b => (b.month_year && b.month_year.startsWith(selectedYear)) || (b.payment_date && b.payment_date.startsWith(selectedYear)));
+    filteredAssets = fixed_assets.filter(a => a.date && a.date.startsWith(selectedYear));
   } else {
     // 'all'
     periodLabel = 'All-Time';
     filteredRecords = daily_records;
     filteredBills = monthly_bills;
+    filteredAssets = fixed_assets;
   }
 
   // Aggregate daily records
@@ -194,6 +201,10 @@ export const calculatePeriodSummary = (data, periodType = 'month', selectedDate 
     .filter(b => b.status === 'PAID')
     .reduce((sum, b) => sum + Number(b.amount || 0), 0);
 
+  // Fixed CapEx / Asset purchases in this period
+  const total_fixed_assets = filteredAssets
+    .reduce((sum, a) => sum + Number(a.amount || 0), 0);
+
   // Total base staff payroll for month (if viewing monthly)
   let total_staff_base_salary = 0;
   if (periodType === 'month') {
@@ -205,12 +216,12 @@ export const calculatePeriodSummary = (data, periodType = 'month', selectedDate 
   // Gross Operating Profit = Sales - Raw Material Bazar - Wastage
   const gross_profit = total_sales - total_market - total_wastage;
 
-  // Net Operating Profit after Overhead bills
-  const net_operating_profit = gross_profit - total_bills_paid;
+  // Net Operating Profit after Overhead bills & Fixed CapEx
+  const net_operating_profit = gross_profit - total_bills_paid - total_fixed_assets;
 
-  // Net Remaining Cash in Hand after staff payments, pocket money, bills & bazar
-  // (Total Sales - Bazar - Staff Advances - Owner Pocket Money - Bills - Wastage)
-  const net_remaining_cash = total_sales - total_market - total_staff_advances - total_owner_drawings - total_bills_paid - total_wastage;
+  // Net Remaining Cash in Hand after staff payments, pocket money, bills, fixed assets & bazar
+  // (Total Sales - Bazar - Staff Advances - Owner Pocket Money - Bills - Fixed Assets - Wastage)
+  const net_remaining_cash = total_sales - total_market - total_staff_advances - total_owner_drawings - total_bills_paid - total_fixed_assets - total_wastage;
 
   // Active records count (only records with non-zero activity)
   const activeRecordsCount = filteredRecords.filter(r => (
@@ -234,6 +245,7 @@ export const calculatePeriodSummary = (data, periodType = 'month', selectedDate 
     total_staff_advances,
     total_staff_base_salary,
     total_bills_paid,
+    total_fixed_assets,
     total_wastage,
     total_bank_deposits,
     net_operating_profit,
@@ -290,7 +302,9 @@ export const calculateBreakevenROI = (data) => {
   // Total fixed assets cost
   const fixed_assets = data?.fixed_assets || [];
   const total_capex = fixed_assets.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const total_setup_cost = initial_capital > 0 ? initial_capital : total_capex;
+  
+  // Total setup cost is combined initial capital investment + all recorded capital equipment
+  const total_setup_cost = initial_capital + total_capex;
 
   // Cumulative operating profits across all days
   const daily_records = data?.daily_records || [];
@@ -318,18 +332,34 @@ export const calculateBreakevenROI = (data) => {
     .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
   // Net earnings applied towards capital recovery:
-  // Recovered = (All Cumulative Profits - Monthly Bills - Owner Pocket Drawings)
-  const net_recovered = cumulative_daily_profit - total_bills_paid - total_owner_withdrawn;
-  const remaining_to_breakeven = total_setup_cost > 0 ? Math.max(0, total_setup_cost - net_recovered) : 0;
-  const breakeven_percent = total_setup_cost > 0 
-    ? Math.max(0, Math.min(100, (net_recovered / total_setup_cost) * 100))
-    : (net_recovered >= 0 ? 100 : 0);
+  // Recovered = (All Cumulative Profits - Monthly Bills - Owner Pocket Drawings - Staff Advances)
+  const net_recovered = cumulative_daily_profit - total_bills_paid - total_owner_withdrawn - total_all_time_advances;
+  
+  const has_investment = total_setup_cost > 0;
+  const remaining_to_breakeven = has_investment ? Math.max(0, total_setup_cost - net_recovered) : 0;
+  
+  let breakeven_percent = 0;
+  let is_breakeven_reached = false;
+  let net_position_status = 'CLEAN_SLATE';
 
-  const is_breakeven_reached = total_setup_cost > 0 ? (net_recovered >= total_setup_cost) : (net_recovered >= 0);
-  const net_position_status = is_breakeven_reached ? 'PROFIT_ZONE' : 'RECOVERY_PHASE';
+  if (has_investment) {
+    breakeven_percent = Number(Math.max(0, Math.min(100, (net_recovered / total_setup_cost) * 100)).toFixed(1));
+    is_breakeven_reached = net_recovered >= total_setup_cost;
+    net_position_status = is_breakeven_reached ? 'PROFIT_ZONE' : 'RECOVERY_PHASE';
+  } else if (net_recovered > 0) {
+    breakeven_percent = 100;
+    is_breakeven_reached = true;
+    net_position_status = 'PROFIT_ZONE';
+  } else if (net_recovered < 0) {
+    breakeven_percent = 0;
+    is_breakeven_reached = false;
+    net_position_status = 'DEFICIT_PHASE';
+  }
 
   return {
     initial_capital: total_setup_cost,
+    base_initial_capital: initial_capital,
+    total_fixed_assets_capex: total_capex,
     total_all_time_sales,
     total_all_time_market,
     total_all_time_advances,
@@ -339,7 +369,7 @@ export const calculateBreakevenROI = (data) => {
     total_owner_withdrawn,
     net_recovered,
     remaining_to_breakeven,
-    breakeven_percent: Number(breakeven_percent.toFixed(1)),
+    breakeven_percent,
     is_breakeven_reached,
     net_position_status,
   };

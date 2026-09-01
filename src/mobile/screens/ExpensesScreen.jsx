@@ -4,7 +4,10 @@ import {
   Zap, 
   AlertTriangle, 
   Plus, 
-  Trash2, 
+  Trash2,
+  Edit2,
+  Coins,
+  ShieldCheck
 } from 'lucide-react';
 import { useAppData } from '../../context/AppDataContext';
 import { formatCurrency } from '../../utils/accounting';
@@ -17,12 +20,16 @@ export const ExpensesScreen = () => {
     selectedDate, 
     getDayRecord, 
     addFixedAsset, 
+    updateFixedAsset,
     deleteFixedAsset, 
     addMonthlyBill, 
+    updateMonthlyBill,
     deleteMonthlyBill,
     toggleMonthlyBillPaid,
     addWastageItem,
-    deleteWastageItem
+    updateWastageItem,
+    deleteWastageItem,
+    updateInitialCapital
   } = useAppData();
 
   const [segment, setSegment] = useState('FIXED'); // 'FIXED', 'MONTHLY', 'WASTAGE'
@@ -31,66 +38,155 @@ export const ExpensesScreen = () => {
   // Universal Delete Confirmation state
   const [deleteTarget, setDeleteTarget] = useState(null); // { type, id, name, amount }
 
-  // Modals
+  // Modals: Add
   const [assetModalOpen, setAssetModalOpen] = useState(false);
   const [billModalOpen, setBillModalOpen] = useState(false);
   const [wastageModalOpen, setWastageModalOpen] = useState(false);
+  const [capitalModalOpen, setCapitalModalOpen] = useState(false);
 
-  // Form: Asset
+  // Modals: Edit
+  const [editingAsset, setEditingAsset] = useState(null);
+  const [editingBill, setEditingBill] = useState(null);
+  const [editingWastage, setEditingWastage] = useState(null);
+
+  // Form: Asset Add/Edit
   const [assetName, setAssetName] = useState('');
   const [assetAmount, setAssetAmount] = useState('');
   const [assetCategory, setAssetCategory] = useState('FURNITURE');
+  const [assetDate, setAssetDate] = useState(selectedDate);
 
-  // Form: Bill
+  // Form: Bill Add/Edit
   const [billType, setBillType] = useState('Electricity Bill');
   const [billAmount, setBillAmount] = useState('');
   const [billMonth, setBillMonth] = useState(selectedDate.slice(0, 7));
+  const [billPaymentDate, setBillPaymentDate] = useState(selectedDate);
 
-  // Form: Wastage
+  // Form: Wastage Add/Edit
   const [wastageDesc, setWastageDesc] = useState('');
   const [wastageAmount, setWastageAmount] = useState('');
   const [wastageReason, setWastageReason] = useState('Accidental breakage');
 
-  // Handlers
-  const handleSaveAsset = () => {
-    if (!assetName.trim() || !assetAmount) {
-      return;
-    }
-    addFixedAsset({
-      item_name: assetName.trim(),
-      amount: Number(assetAmount),
-      category: assetCategory,
-      date: selectedDate,
-    });
+  // Form: Capital
+  const [capitalInput, setCapitalInput] = useState(String(data?.restaurant_info?.initial_capital_investment || '0'));
+
+  // Handlers: Asset
+  const handleOpenAddAsset = () => {
+    setEditingAsset(null);
     setAssetName('');
     setAssetAmount('');
+    setAssetCategory('FURNITURE');
+    setAssetDate(selectedDate);
+    setAssetModalOpen(true);
+  };
+
+  const handleOpenEditAsset = (asset) => {
+    setEditingAsset(asset);
+    setAssetName(asset.item_name);
+    setAssetAmount(String(asset.amount));
+    setAssetCategory(asset.category || 'FURNITURE');
+    setAssetDate(asset.date || selectedDate);
+    setAssetModalOpen(true);
+  };
+
+  const handleSaveAsset = () => {
+    if (!assetName.trim() || !assetAmount || isNaN(Number(assetAmount))) return;
+
+    if (editingAsset) {
+      updateFixedAsset(editingAsset.id, {
+        item_name: assetName.trim(),
+        amount: Number(assetAmount),
+        category: assetCategory,
+        date: assetDate || selectedDate,
+      });
+    } else {
+      addFixedAsset({
+        item_name: assetName.trim(),
+        amount: Number(assetAmount),
+        category: assetCategory,
+        date: assetDate || selectedDate,
+      });
+    }
     setAssetModalOpen(false);
   };
 
-  const handleSaveBill = () => {
-    if (!billType.trim() || !billAmount) {
-      return;
-    }
-    addMonthlyBill({
-      bill_type: billType.trim(),
-      amount: Number(billAmount),
-      month_year: billMonth,
-      payment_date: selectedDate,
-      status: 'PAID'
-    });
+  // Handlers: Bill
+  const handleOpenAddBill = () => {
+    setEditingBill(null);
     setBillType('Electricity Bill');
     setBillAmount('');
+    setBillMonth(selectedDate.slice(0, 7));
+    setBillPaymentDate(selectedDate);
+    setBillModalOpen(true);
+  };
+
+  const handleOpenEditBill = (bill) => {
+    setEditingBill(bill);
+    setBillType(bill.bill_type);
+    setBillAmount(String(bill.amount));
+    setBillMonth(bill.month_year || selectedDate.slice(0, 7));
+    setBillPaymentDate(bill.payment_date || selectedDate);
+    setBillModalOpen(true);
+  };
+
+  const handleSaveBill = () => {
+    if (!billType.trim() || !billAmount || isNaN(Number(billAmount))) return;
+
+    if (editingBill) {
+      updateMonthlyBill(editingBill.id, {
+        bill_type: billType.trim(),
+        amount: Number(billAmount),
+        month_year: billMonth,
+        payment_date: billPaymentDate,
+      });
+    } else {
+      addMonthlyBill({
+        bill_type: billType.trim(),
+        amount: Number(billAmount),
+        month_year: billMonth,
+        payment_date: billPaymentDate,
+        status: 'PAID'
+      });
+    }
     setBillModalOpen(false);
   };
 
-  const handleSaveWastage = () => {
-    if (!wastageDesc.trim() || !wastageAmount) {
-      return;
-    }
-    addWastageItem(selectedDate, wastageDesc.trim(), Number(wastageAmount), wastageReason);
+  // Handlers: Wastage
+  const handleOpenAddWastage = () => {
+    setEditingWastage(null);
     setWastageDesc('');
     setWastageAmount('');
+    setWastageReason('Accidental breakage');
+    setWastageModalOpen(true);
+  };
+
+  const handleOpenEditWastage = (item) => {
+    setEditingWastage(item);
+    setWastageDesc(item.item_description);
+    setWastageAmount(String(item.amount));
+    setWastageReason(item.reason || 'Accidental breakage');
+    setWastageModalOpen(true);
+  };
+
+  const handleSaveWastage = () => {
+    if (!wastageDesc.trim() || !wastageAmount || isNaN(Number(wastageAmount))) return;
+
+    if (editingWastage) {
+      updateWastageItem(selectedDate, editingWastage.id, {
+        item_description: wastageDesc.trim(),
+        amount: Number(wastageAmount),
+        reason: wastageReason,
+      });
+    } else {
+      addWastageItem(selectedDate, wastageDesc.trim(), Number(wastageAmount), wastageReason);
+    }
     setWastageModalOpen(false);
+  };
+
+  // Handlers: Capital
+  const handleSaveCapital = () => {
+    const num = Number(capitalInput || 0);
+    updateInitialCapital(isNaN(num) ? 0 : num);
+    setCapitalModalOpen(false);
   };
 
   const handleExecuteDelete = () => {
@@ -105,7 +201,9 @@ export const ExpensesScreen = () => {
     setDeleteTarget(null);
   };
 
+  const initialCapital = Number(data?.restaurant_info?.initial_capital_investment || 0);
   const totalFixedCost = (data.fixed_assets || []).reduce((s, a) => s + Number(a.amount || 0), 0);
+  const totalCombinedInvestment = initialCapital + totalFixedCost;
   const totalMonthlyBills = (data.monthly_bills || []).reduce((s, b) => s + Number(b.amount || 0), 0);
   const totalTodayWastage = (record.wastage_demurrage || []).reduce((s, w) => s + Number(w.amount || 0), 0);
 
@@ -119,7 +217,7 @@ export const ExpensesScreen = () => {
         title={`Delete ${deleteTarget?.type === 'asset' ? 'Capital Asset' : deleteTarget?.type === 'bill' ? 'Monthly Bill' : 'Wastage Item'}?`}
         itemName={deleteTarget?.name}
         itemAmount={deleteTarget?.amount}
-        description="This expense record will be permanently deleted."
+        description="This expense record will be permanently deleted and totals will update immediately."
       />
 
       {/* 3-Way Segment Selector */}
@@ -205,15 +303,84 @@ export const ExpensesScreen = () => {
       {/* SEGMENT 1: FIXED ASSETS & CAPEX */}
       {segment === 'FIXED' && (
         <div>
+          {/* Initial Setup Capital Hero Card */}
+          <div className="glass-card" style={{
+            padding: '14px',
+            marginBottom: '14px',
+            backgroundColor: '#FFFFFF',
+            border: '1.5px solid #E2E8F0',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Coins size={16} color="var(--primary)" />
+                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-main)' }}>
+                  Total Setup Investment
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setCapitalInput(String(initialCapital));
+                  setCapitalModalOpen(true);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #E2E8F0',
+                  backgroundColor: '#F8FAFC',
+                  color: 'var(--primary)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                <Edit2 size={11} />
+                <span>Edit Capital</span>
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+              <div style={{ backgroundColor: '#F8FAFC', padding: 8, borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>Initial Hotel Capital</div>
+                <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--text-main)', marginTop: 2 }}>
+                  {formatCurrency(initialCapital)}
+                </div>
+              </div>
+              <div style={{ backgroundColor: '#F8FAFC', padding: 8, borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>Fixed Equipment CapEx</div>
+                <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--text-main)', marginTop: 2 }}>
+                  {formatCurrency(totalFixedCost)}
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: '1px solid #E2E8F0',
+            }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>Combined Capital Base</span>
+              <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--primary)' }}>
+                {formatCurrency(totalCombinedInvestment)}
+              </span>
+            </div>
+          </div>
+
+          {/* Fixed Assets Header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div>
-              <h2 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>Fixed Assets & Setup Costs</h2>
+              <h2 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>Fixed Assets Register</h2>
               <p style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
-                Total Invested: <strong style={{ color: 'var(--text-main)' }}>{formatCurrency(totalFixedCost)}</strong>
+                {(data.fixed_assets || []).length} equipment & renovation items
               </p>
             </div>
             <button
-              onClick={() => setAssetModalOpen(true)}
+              onClick={handleOpenAddAsset}
               style={{
                 backgroundColor: 'var(--primary)',
                 color: '#FFF',
@@ -234,28 +401,42 @@ export const ExpensesScreen = () => {
             </button>
           </div>
 
-          {(data.fixed_assets || []).map((asset) => (
-            <div key={asset.id} className="glass-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{asset.item_name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{asset.category} • Purchased: {asset.date}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>{formatCurrency(asset.amount)}</span>
-                <button
-                  onClick={() => setDeleteTarget({
-                    type: 'asset',
-                    id: asset.id,
-                    name: asset.item_name,
-                    amount: formatCurrency(asset.amount),
-                  })}
-                  style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 4 }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+          {(data.fixed_assets || []).length === 0 ? (
+            <div style={{ backgroundColor: '#F8FAFC', padding: 18, borderRadius: 12, textAlign: 'center', color: 'var(--text-muted)', fontSize: 11.5, border: '1px solid #E2E8F0' }}>
+              No fixed equipment assets added yet.
             </div>
-          ))}
+          ) : (
+            (data.fixed_assets || []).map((asset) => (
+              <div key={asset.id} className="glass-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{asset.item_name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{asset.category} • Purchased: {asset.date}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)', marginRight: 4 }}>{formatCurrency(asset.amount)}</span>
+                  <button
+                    onClick={() => handleOpenEditAsset(asset)}
+                    style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: 4 }}
+                    title="Edit asset"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                  <button
+                    onClick={() => setDeleteTarget({
+                      type: 'asset',
+                      id: asset.id,
+                      name: asset.item_name,
+                      amount: formatCurrency(asset.amount),
+                    })}
+                    style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 4 }}
+                    title="Delete asset"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
@@ -266,11 +447,11 @@ export const ExpensesScreen = () => {
             <div>
               <h2 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>Monthly Running Bills</h2>
               <p style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
-                Total Bills: <strong style={{ color: 'var(--text-main)' }}>{formatCurrency(totalMonthlyBills)}</strong>
+                Total Recorded: <strong style={{ color: 'var(--text-main)' }}>{formatCurrency(totalMonthlyBills)}</strong>
               </p>
             </div>
             <button
-              onClick={() => setBillModalOpen(true)}
+              onClick={handleOpenAddBill}
               style={{
                 backgroundColor: 'var(--amber)',
                 color: '#FFF',
@@ -291,43 +472,57 @@ export const ExpensesScreen = () => {
             </button>
           </div>
 
-          {(data.monthly_bills || []).map((bill) => (
-            <div key={bill.id} className="glass-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{bill.bill_type}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>Month: {bill.month_year} • Paid: {bill.payment_date}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--amber)' }}>{formatCurrency(bill.amount)}</span>
-                <button
-                  onClick={() => toggleMonthlyBillPaid(bill.id)}
-                  style={{
-                    padding: '4px 7px',
-                    borderRadius: 6,
-                    border: 'none',
-                    backgroundColor: bill.status === 'PAID' ? 'var(--primary-light)' : 'var(--rose-light)',
-                    color: bill.status === 'PAID' ? 'var(--primary-dark)' : 'var(--rose)',
-                    fontSize: 10,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {bill.status}
-                </button>
-                <button
-                  onClick={() => setDeleteTarget({
-                    type: 'bill',
-                    id: bill.id,
-                    name: bill.bill_type,
-                    amount: formatCurrency(bill.amount),
-                  })}
-                  style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 4 }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+          {(data.monthly_bills || []).length === 0 ? (
+            <div style={{ backgroundColor: '#F8FAFC', padding: 18, borderRadius: 12, textAlign: 'center', color: 'var(--text-muted)', fontSize: 11.5, border: '1px solid #E2E8F0' }}>
+              No monthly bills recorded yet.
             </div>
-          ))}
+          ) : (
+            (data.monthly_bills || []).map((bill) => (
+              <div key={bill.id} className="glass-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{bill.bill_type}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>Month: {bill.month_year} • Paid: {bill.payment_date}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--amber)' }}>{formatCurrency(bill.amount)}</span>
+                  <button
+                    onClick={() => toggleMonthlyBillPaid(bill.id)}
+                    style={{
+                      padding: '3px 6px',
+                      borderRadius: 6,
+                      border: 'none',
+                      backgroundColor: bill.status === 'PAID' ? 'var(--primary-light)' : 'var(--rose-light)',
+                      color: bill.status === 'PAID' ? 'var(--primary-dark)' : 'var(--rose)',
+                      fontSize: 9.5,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {bill.status}
+                  </button>
+                  <button
+                    onClick={() => handleOpenEditBill(bill)}
+                    style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: 4 }}
+                    title="Edit bill"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                  <button
+                    onClick={() => setDeleteTarget({
+                      type: 'bill',
+                      id: bill.id,
+                      name: bill.bill_type,
+                      amount: formatCurrency(bill.amount),
+                    })}
+                    style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 4 }}
+                    title="Delete bill"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
@@ -342,7 +537,7 @@ export const ExpensesScreen = () => {
               </p>
             </div>
             <button
-              onClick={() => setWastageModalOpen(true)}
+              onClick={handleOpenAddWastage}
               style={{
                 backgroundColor: 'var(--rose)',
                 color: '#FFF',
@@ -374,8 +569,15 @@ export const ExpensesScreen = () => {
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{item.item_description}</div>
                   <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{item.reason}</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--rose)' }}>-{formatCurrency(item.amount)}</span>
+                  <button
+                    onClick={() => handleOpenEditWastage(item)}
+                    style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: 4 }}
+                    title="Edit wastage"
+                  >
+                    <Edit2 size={14} />
+                  </button>
                   <button
                     onClick={() => setDeleteTarget({
                       type: 'wastage',
@@ -384,6 +586,7 @@ export const ExpensesScreen = () => {
                       amount: formatCurrency(item.amount),
                     })}
                     style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 4 }}
+                    title="Delete wastage"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -394,8 +597,13 @@ export const ExpensesScreen = () => {
         </div>
       )}
 
-      {/* MODAL 1: ADD ASSET */}
-      <CustomModal visible={assetModalOpen} onClose={() => setAssetModalOpen(false)} title="Add Fixed Capital Asset" subtitle="Record equipment, furniture or renovations">
+      {/* MODAL 1: ADD/EDIT ASSET */}
+      <CustomModal
+        visible={assetModalOpen}
+        onClose={() => setAssetModalOpen(false)}
+        title={editingAsset ? "Edit Fixed Capital Asset" : "Add Fixed Capital Asset"}
+        subtitle="Record equipment, furniture or renovations"
+      >
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Asset Name</label>
           <input className="input-field" placeholder="e.g. 10 Dining Tables & 40 Chairs" value={assetName} onChange={(e) => setAssetName(e.target.value)} />
@@ -404,10 +612,14 @@ export const ExpensesScreen = () => {
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Purchase Amount (৳)</label>
           <input type="number" className="input-field" placeholder="e.g. 150000" value={assetAmount} onChange={(e) => setAssetAmount(e.target.value)} />
         </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Purchase Date</label>
+          <input type="date" className="input-field" value={assetDate} onChange={(e) => setAssetDate(e.target.value)} />
+        </div>
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Category</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {['FURNITURE', 'KITCHEN_EQUIPMENT', 'APPLIANCES', 'INTERIOR', 'UTENSILS'].map((cat) => (
+            {['FURNITURE', 'KITCHEN_EQUIPMENT', 'APPLIANCES', 'INTERIOR', 'UTENSILS', 'ELECTRONICS'].map((cat) => (
               <button
                 key={cat}
                 type="button"
@@ -428,11 +640,18 @@ export const ExpensesScreen = () => {
             ))}
           </div>
         </div>
-        <button onClick={handleSaveAsset} className="btn-primary" style={{ width: '100%' }}>Save Capital Asset</button>
+        <button onClick={handleSaveAsset} className="btn-primary" style={{ width: '100%' }}>
+          {editingAsset ? "Update Capital Asset" : "Save Capital Asset"}
+        </button>
       </CustomModal>
 
-      {/* MODAL 2: ADD MONTHLY BILL */}
-      <CustomModal visible={billModalOpen} onClose={() => setBillModalOpen(false)} title="Record Monthly Recurring Bill" subtitle="Utilities, shop rent, gas, wifi">
+      {/* MODAL 2: ADD/EDIT MONTHLY BILL */}
+      <CustomModal
+        visible={billModalOpen}
+        onClose={() => setBillModalOpen(false)}
+        title={editingBill ? "Edit Monthly Bill" : "Record Monthly Recurring Bill"}
+        subtitle="Utilities, shop rent, gas, wifi"
+      >
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Bill Type</label>
           <input className="input-field" placeholder="e.g. Shop Rent / Electricity" value={billType} onChange={(e) => setBillType(e.target.value)} />
@@ -441,15 +660,26 @@ export const ExpensesScreen = () => {
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Bill Amount (৳)</label>
           <input type="number" className="input-field" placeholder="e.g. 18500" value={billAmount} onChange={(e) => setBillAmount(e.target.value)} />
         </div>
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 12 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Billing Month (YYYY-MM)</label>
           <input className="input-field" placeholder="2026-08" value={billMonth} onChange={(e) => setBillMonth(e.target.value)} />
         </div>
-        <button onClick={handleSaveBill} className="btn-primary" style={{ width: '100%', backgroundColor: 'var(--amber)', color: '#FFF' }}>Save Monthly Bill</button>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Payment Date</label>
+          <input type="date" className="input-field" value={billPaymentDate} onChange={(e) => setBillPaymentDate(e.target.value)} />
+        </div>
+        <button onClick={handleSaveBill} className="btn-primary" style={{ width: '100%', backgroundColor: 'var(--amber)', color: '#FFF' }}>
+          {editingBill ? "Update Monthly Bill" : "Save Monthly Bill"}
+        </button>
       </CustomModal>
 
-      {/* MODAL 3: ADD WASTAGE */}
-      <CustomModal visible={wastageModalOpen} onClose={() => setWastageModalOpen(false)} title="Record Wastage or Breakage" subtitle="Track damaged items, spoilage or loss">
+      {/* MODAL 3: ADD/EDIT WASTAGE */}
+      <CustomModal
+        visible={wastageModalOpen}
+        onClose={() => setWastageModalOpen(false)}
+        title={editingWastage ? "Edit Wastage Record" : "Record Wastage or Breakage"}
+        subtitle="Track damaged items, spoilage or loss"
+      >
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Item Description</label>
           <input className="input-field" placeholder="e.g. 2 Water Glasses broken / 2kg chicken spoiled" value={wastageDesc} onChange={(e) => setWastageDesc(e.target.value)} />
@@ -462,7 +692,36 @@ export const ExpensesScreen = () => {
           <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Reason / Notes</label>
           <input className="input-field" placeholder="e.g. Kitchen accident / Storage failure" value={wastageReason} onChange={(e) => setWastageReason(e.target.value)} />
         </div>
-        <button onClick={handleSaveWastage} className="btn-primary" style={{ width: '100%', backgroundColor: 'var(--rose)', color: '#FFF' }}>Save Wastage Record</button>
+        <button onClick={handleSaveWastage} className="btn-primary" style={{ width: '100%', backgroundColor: 'var(--rose)', color: '#FFF' }}>
+          {editingWastage ? "Update Wastage Record" : "Save Wastage Record"}
+        </button>
+      </CustomModal>
+
+      {/* MODAL 4: EDIT INITIAL CAPITAL */}
+      <CustomModal
+        visible={capitalModalOpen}
+        onClose={() => setCapitalModalOpen(false)}
+        title="Set Initial Hotel Setup Capital"
+        subtitle="Original capital invested before daily operations"
+      >
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Initial Capital Amount (৳)
+          </label>
+          <input
+            type="number"
+            className="input-field"
+            placeholder="e.g. 500000"
+            value={capitalInput}
+            onChange={(e) => setCapitalInput(e.target.value)}
+          />
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+            💡 This is combined with your fixed equipment assets to determine your overall setup cost for the Breakeven ROI calculation.
+          </p>
+        </div>
+        <button onClick={handleSaveCapital} className="btn-primary" style={{ width: '100%' }}>
+          Save Initial Capital
+        </button>
       </CustomModal>
     </div>
   );

@@ -23,6 +23,10 @@ import {
 } from 'lucide-react';
 import { useAppData } from '../../context/AppDataContext';
 import { exportDataAsJSON } from '../../utils/storage';
+import { 
+  getGoogleConfig, 
+  saveGoogleConfig 
+} from '../../utils/googleDrive';
 import { DesktopDeleteConfirmModal } from '../components/DesktopDeleteConfirmModal';
 import { DesktopModal } from '../components/DesktopModal';
 
@@ -61,6 +65,10 @@ export const DesktopCloudSettingsScreen = () => {
           if (config?.clientId) setClientIdInput(config.clientId);
           if (config?.clientSecret) setClientSecretInput(config.clientSecret);
         } catch (e) {}
+      } else {
+        const config = await getGoogleConfig();
+        if (config?.clientId) setClientIdInput(config.clientId);
+        if (config?.clientSecret) setClientSecretInput(config.clientSecret);
       }
     };
     loadConfig();
@@ -75,6 +83,11 @@ export const DesktopCloudSettingsScreen = () => {
   const handleSaveCredentials = async () => {
     if (typeof window !== 'undefined' && window.api?.saveGoogleConfig) {
       await window.api.saveGoogleConfig({
+        clientId: clientIdInput.trim(),
+        clientSecret: clientSecretInput.trim(),
+      });
+    } else {
+      await saveGoogleConfig({
         clientId: clientIdInput.trim(),
         clientSecret: clientSecretInput.trim(),
       });

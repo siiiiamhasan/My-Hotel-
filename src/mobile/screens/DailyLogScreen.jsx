@@ -8,6 +8,10 @@ import {
   CheckCircle2, 
   Landmark,
   Coins,
+  Edit2,
+  RotateCcw,
+  UserCheck,
+  AlertTriangle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAppData } from '../../context/AppDataContext';
@@ -20,9 +24,14 @@ export const DailyLogScreen = () => {
     selectedDate, 
     getDayRecord, 
     addMorningMarketItem, 
+    updateMorningMarketItem,
     deleteMorningMarketItem,
     updateDailySales,
     submitNightClosing,
+    resetNightClosing,
+    deleteOwnerDrawing,
+    deleteStaffAdvance,
+    deleteWastageItem,
     data
   } = useAppData();
 
@@ -34,9 +43,13 @@ export const DailyLogScreen = () => {
   const [marketModalOpen, setMarketModalOpen] = useState(false);
   const [salesModalOpen, setSalesModalOpen] = useState(false);
   const [closingModalOpen, setClosingModalOpen] = useState(false);
+  const [resetClosingConfirmOpen, setResetClosingConfirmOpen] = useState(false);
+
+  // Edit states
+  const [editingMarketItem, setEditingMarketItem] = useState(null);
 
   // Delete confirmation modal state
-  const [deleteItemTarget, setDeleteItemTarget] = useState(null); // { id, name, amount }
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type, id, name, amount }
 
   // Form states: Market Item
   const [marketItemName, setMarketItemName] = useState('');
@@ -70,30 +83,63 @@ export const DailyLogScreen = () => {
     record.night_closing?.notes || ''
   );
 
-  // Handlers
+  // Handlers: Market Item
+  const handleOpenAddMarket = () => {
+    setEditingMarketItem(null);
+    setMarketItemName('');
+    setMarketAmount('');
+    setMarketCategory('GROCERY');
+    setMarketBuyer(data?.owners?.[0]?.name || 'Partner');
+    setMarketPaidFrom('CASH_DRAWER');
+    setMarketError('');
+    setMarketModalOpen(true);
+  };
+
+  const handleOpenEditMarket = (item) => {
+    setEditingMarketItem(item);
+    setMarketItemName(item.item_name);
+    setMarketAmount(String(item.amount));
+    setMarketCategory(item.category || 'GROCERY');
+    setMarketBuyer(item.buyer || (data?.owners?.[0]?.name || 'Partner'));
+    setMarketPaidFrom(item.paid_from || 'CASH_DRAWER');
+    setMarketError('');
+    setMarketModalOpen(true);
+  };
+
   const handleSaveMarketItem = () => {
     if (!marketItemName.trim() || !marketAmount || isNaN(Number(marketAmount))) {
       setMarketError('Please enter a valid item name and amount.');
       return;
     }
     setMarketError('');
-    addMorningMarketItem(selectedDate, {
-      item_name: marketItemName.trim(),
-      category: marketCategory,
-      amount: Number(marketAmount),
-      paid_from: marketPaidFrom,
-      buyer: marketBuyer,
-    });
-    setMarketItemName('');
-    setMarketAmount('');
+
+    if (editingMarketItem) {
+      updateMorningMarketItem(selectedDate, editingMarketItem.id, {
+        item_name: marketItemName.trim(),
+        category: marketCategory,
+        amount: Number(marketAmount),
+        paid_from: marketPaidFrom,
+        buyer: marketBuyer,
+      });
+    } else {
+      addMorningMarketItem(selectedDate, {
+        item_name: marketItemName.trim(),
+        category: marketCategory,
+        amount: Number(marketAmount),
+        paid_from: marketPaidFrom,
+        buyer: marketBuyer,
+      });
+    }
     setMarketModalOpen(false);
   };
 
+  // Handlers: Sales
   const handleSaveSales = () => {
     updateDailySales(selectedDate, Number(cashSalesInput || 0), Number(digitalSalesInput || 0));
     setSalesModalOpen(false);
   };
 
+  // Handlers: Night Closing
   const handleSaveNightClosing = () => {
     const countedCash = Number(actualDrawerCash || 0);
     const expCash = summary.expected_cash;
@@ -120,28 +166,52 @@ export const DailyLogScreen = () => {
         origin: { y: 0.8 },
         colors: ['#059669', '#4F46E5', '#D97706', '#E11D48']
       });
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) {}
 
     setClosingModalOpen(false);
+  };
+
+  const handleResetClosing = () => {
+    resetNightClosing(selectedDate);
+    setResetClosingConfirmOpen(false);
+  };
+
+  // Handlers: Universal Delete
+  const handleExecuteDelete = () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.type === 'market') {
+      deleteMorningMarketItem(selectedDate, deleteTarget.id);
+    } else if (deleteTarget.type === 'drawing') {
+      deleteOwnerDrawing(selectedDate, deleteTarget.id);
+    } else if (deleteTarget.type === 'advance') {
+      deleteStaffAdvance(selectedDate, deleteTarget.id);
+    } else if (deleteTarget.type === 'wastage') {
+      deleteWastageItem(selectedDate, deleteTarget.id);
+    }
+    setDeleteTarget(null);
   };
 
   return (
     <div style={{ padding: '14px', paddingBottom: '24px' }}>
       {/* Universal Delete Confirmation Modal */}
       <DeleteConfirmModal
-        visible={!!deleteItemTarget}
-        onClose={() => setDeleteItemTarget(null)}
-        onConfirm={() => {
-          if (deleteItemTarget) {
-            deleteMorningMarketItem(selectedDate, deleteItemTarget.id);
-          }
-        }}
-        title="Delete Bazar Item?"
-        itemName={deleteItemTarget?.name}
-        itemAmount={deleteItemTarget?.amount}
-        description="This raw material expense will be removed from today's accounts."
+        visible={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleExecuteDelete}
+        title={`Delete ${deleteTarget?.type === 'market' ? 'Bazar Item' : deleteTarget?.type === 'drawing' ? 'Pocket Money' : deleteTarget?.type === 'advance' ? 'Staff Advance' : 'Wastage Item'}?`}
+        itemName={deleteTarget?.name}
+        itemAmount={deleteTarget?.amount}
+        description="This transaction will be removed from today's accounts and dashboard will update immediately."
+      />
+
+      {/* Reset Night Closing Confirmation Modal */}
+      <DeleteConfirmModal
+        visible={resetClosingConfirmOpen}
+        onClose={() => setResetClosingConfirmOpen(false)}
+        onConfirm={handleResetClosing}
+        title="Reset Today's Night Closing?"
+        itemName="Night Closing Seal"
+        description="This will unlock today's cash drawer reconciliation and allow editing."
       />
 
       {/* Yesterday's Carryover Banner */}
@@ -183,7 +253,7 @@ export const DailyLogScreen = () => {
             <h2 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>1. Morning Bazar / Market</h2>
           </div>
           <button
-            onClick={() => setMarketModalOpen(true)}
+            onClick={handleOpenAddMarket}
             style={{
               backgroundColor: 'var(--rose)',
               color: '#FFF',
@@ -223,10 +293,18 @@ export const DailyLogScreen = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--rose)' }}>{formatCurrency(item.amount)}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--rose)', marginRight: 4 }}>{formatCurrency(item.amount)}</span>
                   <button
-                    onClick={() => setDeleteItemTarget({
+                    onClick={() => handleOpenEditMarket(item)}
+                    style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: 4 }}
+                    title="Edit item"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                  <button
+                    onClick={() => setDeleteTarget({
+                      type: 'market',
                       id: item.id,
                       name: item.item_name,
                       amount: formatCurrency(item.amount)
@@ -334,26 +412,51 @@ export const DailyLogScreen = () => {
             </div>
             <h2 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>3. Cash Box & Night Closing</h2>
           </div>
-          <button
-            onClick={() => {
-              setActualDrawerCash(String(record.night_closing?.actual_drawer_cash || summary.expected_cash));
-              setNextDayFloat(String(record.night_closing?.next_day_opening_float !== undefined ? record.night_closing.next_day_opening_float : 0));
-              setBankDeposit(String(record.night_closing?.bank_deposit !== undefined ? record.night_closing.bank_deposit : 0));
-              setClosingModalOpen(true);
-            }}
-            style={{
-              backgroundColor: summary.has_closed ? '#F1F5F9' : 'var(--amber)',
-              color: summary.has_closed ? 'var(--text-main)' : '#FFF',
-              border: 'none',
-              borderRadius: 8,
-              padding: '5px 10px',
-              fontSize: 10.5,
-              fontWeight: 800,
-              cursor: 'pointer',
-            }}
-          >
-            {summary.has_closed ? 'Adjust Closing' : 'Start Closing'}
-          </button>
+          
+          <div style={{ display: 'flex', gap: 6 }}>
+            {summary.has_closed && (
+              <button
+                onClick={() => setResetClosingConfirmOpen(true)}
+                style={{
+                  backgroundColor: 'var(--rose-light)',
+                  color: 'var(--rose)',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '5px 8px',
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
+                }}
+              >
+                <RotateCcw size={11} />
+                <span>Reset</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                setActualDrawerCash(String(record.night_closing?.actual_drawer_cash || summary.expected_cash));
+                setNextDayFloat(String(record.night_closing?.next_day_opening_float !== undefined ? record.night_closing.next_day_opening_float : 0));
+                setBankDeposit(String(record.night_closing?.bank_deposit !== undefined ? record.night_closing.bank_deposit : 0));
+                setClosingModalOpen(true);
+              }}
+              style={{
+                backgroundColor: summary.has_closed ? '#F1F5F9' : 'var(--amber)',
+                color: summary.has_closed ? 'var(--text-main)' : '#FFF',
+                border: 'none',
+                borderRadius: 8,
+                padding: '5px 10px',
+                fontSize: 10.5,
+                fontWeight: 800,
+                cursor: 'pointer',
+              }}
+            >
+              {summary.has_closed ? 'Adjust Closing' : 'Start Closing'}
+            </button>
+          </div>
         </div>
 
         <p style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginBottom: 10 }}>
@@ -412,16 +515,16 @@ export const DailyLogScreen = () => {
         )}
       </div>
 
-      {/* 4. WITHDRAWALS & DISTRIBUTIONS SUMMARY */}
+      {/* 4. WITHDRAWALS & DISTRIBUTIONS SUMMARY WITH DIRECT DELETE */}
       <div className="glass-card" style={{ padding: '14px', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'var(--purple-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Coins size={15} color="var(--purple)" />
           </div>
-          <h2 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>4. Withdrawals & Payouts</h2>
+          <h2 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>4. Today's Payouts & Drawings</h2>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 8, marginBottom: 12 }}>
           <div style={{ backgroundColor: '#F8FAFC', padding: 8, borderRadius: 8, border: '1px solid #E2E8F0' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)' }}>Pocket Money</div>
             <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--purple)', marginTop: 2 }}>
@@ -441,13 +544,72 @@ export const DailyLogScreen = () => {
             </div>
           </div>
         </div>
+
+        {/* Itemized Payouts List */}
+        {((record.owner_drawings || []).length > 0 || (record.staff_advances || []).length > 0) && (
+          <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              Itemized Payout Transactions Today:
+            </div>
+
+            {/* Pocket Money List */}
+            {(record.owner_drawings || []).map((d) => (
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #F1F5F9', fontSize: 11 }}>
+                <div>
+                  <span style={{ fontWeight: 700, color: 'var(--purple)' }}>{d.owner_name}</span>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{d.purpose || 'Pocket Money'}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>{formatCurrency(d.amount)}</span>
+                  <button
+                    onClick={() => setDeleteTarget({
+                      type: 'drawing',
+                      id: d.id,
+                      name: `${d.owner_name} Pocket Money`,
+                      amount: formatCurrency(d.amount),
+                    })}
+                    style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 2 }}
+                    title="Delete drawing"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Staff Advances List */}
+            {(record.staff_advances || []).map((sa) => (
+              <div key={sa.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #F1F5F9', fontSize: 11 }}>
+                <div>
+                  <span style={{ fontWeight: 700, color: 'var(--cyan)' }}>{sa.staff_name}</span>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{sa.note || 'Advance'}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>{formatCurrency(sa.amount)}</span>
+                  <button
+                    onClick={() => setDeleteTarget({
+                      type: 'advance',
+                      id: sa.id,
+                      name: `${sa.staff_name} Advance`,
+                      amount: formatCurrency(sa.amount),
+                    })}
+                    style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 2 }}
+                    title="Delete advance"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* --- MODAL 1: ADD MARKET ITEM --- */}
+      {/* --- MODAL 1: ADD/EDIT MARKET ITEM --- */}
       <CustomModal
         visible={marketModalOpen}
         onClose={() => setMarketModalOpen(false)}
-        title="Add Morning Bazar / Market"
+        title={editingMarketItem ? "Edit Morning Bazar Item" : "Add Morning Bazar / Market"}
         subtitle="Record raw materials & supplies purchased"
       >
         <div style={{ marginBottom: 12 }}>
@@ -480,7 +642,7 @@ export const DailyLogScreen = () => {
             Category
           </label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {['MEAT_FISH', 'GROCERY', 'PRODUCE', 'DAIRY', 'PACKAGING'].map((cat) => (
+            {['MEAT_FISH', 'GROCERY', 'PRODUCE', 'DAIRY', 'PACKAGING', 'SPICES'].map((cat) => (
               <button
                 key={cat}
                 type="button"
@@ -571,7 +733,7 @@ export const DailyLogScreen = () => {
           className="btn-primary"
           style={{ width: '100%' }}
         >
-          Save Market Entry
+          {editingMarketItem ? "Update Market Entry" : "Save Market Entry"}
         </button>
       </CustomModal>
 

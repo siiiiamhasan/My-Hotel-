@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { getTokens, saveTokens, clearTokens, getGoogleConfig } = require('./store.cjs');
 const { fetchUserProfile } = require('./drive.cjs');
 
-const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
 
 /**
  * Perform PKCE OAuth 2.0 Authorization Flow on Local Loopback HTTP Server
@@ -20,6 +20,9 @@ async function startDesktopPKCEAuth() {
     const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
 
     let serverClosed = false;
+
+    let loopbackPort = 0;
+    let redirectUri = '';
 
     // 2. Start Local Loopback Server
     const server = http.createServer(async (req, res) => {
@@ -41,7 +44,7 @@ async function startDesktopPKCEAuth() {
                 </body>
               </html>
             `);
-            if (!serverClosed) { serverClosed = true; server.close(); }
+            if (!serverClosed) { serverClosed = true; try { server.close(); } catch (e) {} }
             reject(new Error(error));
             return;
           }
@@ -112,10 +115,15 @@ async function startDesktopPKCEAuth() {
             </html>
           `);
 
-          if (!serverClosed) { serverClosed = true; server.close(); }
+          // Safely close loopback server after completing request
+          setTimeout(() => {
+            if (!serverClosed) {
+              serverClosed = true;
+              try { server.close(); } catch (e) {}
+            }
+          }, 1000);
 
-          const port = server.address().port;
-          const redirectUri = `http://127.0.0.1:${port}/callback`;
+          const currentRedirectUri = redirectUri || `http://127.0.0.1:${loopbackPort}/callback`;
 
           // 3. Exchange Authorization Code for Tokens
           const bodyParams = {
@@ -123,7 +131,7 @@ async function startDesktopPKCEAuth() {
             code: code,
             code_verifier: codeVerifier,
             grant_type: 'authorization_code',
-            redirect_uri: redirectUri,
+            redirect_uri: currentRedirectUri,
           };
           if (clientSecret) {
             bodyParams.client_secret = clientSecret;
@@ -159,14 +167,17 @@ async function startDesktopPKCEAuth() {
           resolve(tokens);
         }
       } catch (err) {
-        if (!serverClosed) { serverClosed = true; server.close(); }
+        if (!serverClosed) {
+          serverClosed = true;
+          try { server.close(); } catch (e) {}
+        }
         reject(err);
       }
     });
 
     server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
-      const redirectUri = `http://127.0.0.1:${port}/callback`;
+      loopbackPort = server.address().port;
+      redirectUri = `http://127.0.0.1:${loopbackPort}/callback`;
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
         client_id: clientId,
@@ -183,7 +194,10 @@ async function startDesktopPKCEAuth() {
     });
 
     server.on('error', (err) => {
-      if (!serverClosed) { serverClosed = true; server.close(); }
+      if (!serverClosed) {
+        serverClosed = true;
+        try { server.close(); } catch (e) {}
+      }
       reject(err);
     });
   });
