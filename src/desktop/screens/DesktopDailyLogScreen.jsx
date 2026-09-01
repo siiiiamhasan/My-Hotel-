@@ -1,0 +1,874 @@
+import React, { useState } from 'react';
+import { 
+  ShoppingBag, 
+  TrendingUp, 
+  Moon, 
+  Plus, 
+  Trash2, 
+  CheckCircle2, 
+  Landmark,
+  Coins,
+  Search,
+  Filter
+} from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { useAppData } from '../../context/AppDataContext';
+import { formatCurrency, calculateDaySummary, calculateYesterdayComparison } from '../../utils/accounting';
+import { DesktopModal } from '../components/DesktopModal';
+import { DesktopDeleteConfirmModal } from '../components/DesktopDeleteConfirmModal';
+
+export const DesktopDailyLogScreen = () => {
+  const { 
+    selectedDate, 
+    getDayRecord, 
+    addMorningMarketItem, 
+    deleteMorningMarketItem,
+    updateDailySales,
+    submitNightClosing,
+    data
+  } = useAppData();
+
+  const record = getDayRecord(selectedDate);
+  const summary = calculateDaySummary(record);
+  const yesterdayComp = calculateYesterdayComparison(selectedDate, data);
+
+  // Modals state
+  const [marketModalOpen, setMarketModalOpen] = useState(false);
+  const [salesModalOpen, setSalesModalOpen] = useState(false);
+  const [closingModalOpen, setClosingModalOpen] = useState(false);
+  const [deleteItemTarget, setDeleteItemTarget] = useState(null); // { id, name, amount }
+
+  // Filter state for market items table
+  const [marketSearchQuery, setMarketSearchQuery] = useState('');
+  const [marketCategoryFilter, setMarketCategoryFilter] = useState('ALL');
+
+  // Form states: Market Item
+  const [marketItemName, setMarketItemName] = useState('');
+  const [marketAmount, setMarketAmount] = useState('');
+  const [marketCategory, setMarketCategory] = useState('GROCERY');
+  const [marketBuyer, setMarketBuyer] = useState(data?.owners?.[0]?.name || '');
+  const [marketPaidFrom, setMarketPaidFrom] = useState('CASH_DRAWER');
+  const [marketError, setMarketError] = useState('');
+
+  // Form states: Sales
+  const [cashSalesInput, setCashSalesInput] = useState(record.sales?.cash_sales ? String(record.sales.cash_sales) : '');
+  const [digitalSalesInput, setDigitalSalesInput] = useState(record.sales?.digital_sales ? String(record.sales.digital_sales) : '');
+
+  // Form states: Night Closing Wizard
+  const [actualDrawerCash, setActualDrawerCash] = useState(
+    record.night_closing?.actual_drawer_cash !== undefined ? String(record.night_closing.actual_drawer_cash) : String(summary.expected_cash)
+  );
+  const [nextDayFloat, setNextDayFloat] = useState(
+    record.night_closing?.next_day_opening_float !== undefined ? String(record.night_closing.next_day_opening_float) : '0'
+  );
+  const [bankDeposit, setBankDeposit] = useState(
+    record.night_closing?.bank_deposit !== undefined ? String(record.night_closing.bank_deposit) : '0'
+  );
+  const [bankNote, setBankNote] = useState(
+    record.night_closing?.bank_note || ''
+  );
+  const [closedBy, setClosedBy] = useState(
+    record.night_closing?.closed_by || (data?.owners?.[0]?.name || '')
+  );
+  const [closingNotes, setClosingNotes] = useState(
+    record.night_closing?.notes || ''
+  );
+
+  // Handlers
+  const handleSaveMarketItem = () => {
+    if (!marketItemName.trim() || !marketAmount || isNaN(Number(marketAmount))) {
+      setMarketError('Please enter a valid item name and amount.');
+      return;
+    }
+    setMarketError('');
+    addMorningMarketItem(selectedDate, {
+      item_name: marketItemName.trim(),
+      category: marketCategory,
+      amount: Number(marketAmount),
+      paid_from: marketPaidFrom,
+      buyer: marketBuyer,
+    });
+    setMarketItemName('');
+    setMarketAmount('');
+    setMarketModalOpen(false);
+  };
+
+  const handleSaveSales = () => {
+    updateDailySales(selectedDate, Number(cashSalesInput || 0), Number(digitalSalesInput || 0));
+    setSalesModalOpen(false);
+  };
+
+  const handleSaveNightClosing = () => {
+    const countedCash = Number(actualDrawerCash || 0);
+    const expCash = summary.expected_cash;
+    const floatAmount = Number(nextDayFloat || 0);
+    const depositAmount = Number(bankDeposit || 0);
+    const vaultReserve = Math.max(0, countedCash - floatAmount - depositAmount);
+
+    submitNightClosing(selectedDate, {
+      actual_drawer_cash: countedCash,
+      expected_cash: expCash,
+      variance: countedCash - expCash,
+      next_day_opening_float: floatAmount,
+      bank_deposit: depositAmount,
+      bank_note: bankNote,
+      retained_vault_reserve: vaultReserve,
+      closed_by: closedBy,
+      notes: closingNotes,
+    });
+
+    try {
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.8 },
+        colors: ['#059669', '#4F46E5', '#D97706', '#E11D48']
+      });
+    } catch (e) {
+      console.error(e);
+    }
+
+    setClosingModalOpen(false);
+  };
+
+  // Filtered market list
+  const filteredMarketItems = (record.morning_market || []).filter((item) => {
+    const matchesSearch = item.item_name.toLowerCase().includes(marketSearchQuery.toLowerCase()) ||
+                          item.buyer.toLowerCase().includes(marketSearchQuery.toLowerCase());
+    const matchesCat = marketCategoryFilter === 'ALL' || item.category === marketCategoryFilter;
+    return matchesSearch && matchesCat;
+  });
+
+  return (
+    <div style={{ padding: '24px 32px', maxWidth: '1600px', margin: '0 auto' }}>
+      {/* Universal Delete Confirmation Modal */}
+      <DesktopDeleteConfirmModal
+        visible={!!deleteItemTarget}
+        onClose={() => setDeleteItemTarget(null)}
+        onConfirm={() => {
+          if (deleteItemTarget) {
+            deleteMorningMarketItem(selectedDate, deleteItemTarget.id);
+          }
+        }}
+        title="Delete Bazar Expense Item?"
+        itemName={deleteItemTarget?.name}
+        itemAmount={deleteItemTarget?.amount}
+        description="This raw material expense item will be permanently removed from today's accounts."
+      />
+
+      {/* Top Banner: Today's Date & Opening Float Carryover */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: '16px 24px',
+        border: '1px solid #E2E8F0',
+        marginBottom: '24px',
+        boxShadow: 'var(--shadow-card)',
+      }}>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+            Daily Accounting Ledger for {selectedDate}
+          </div>
+          <h2 style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-main)', marginTop: 2 }}>
+            Transaction Reconciliation & Cash Box
+          </h2>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>TODAY'S OPENING FLOAT</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--amber)', marginTop: 2 }}>
+              {formatCurrency(summary.opening_float)}
+            </div>
+          </div>
+
+          <div style={{ height: 40, width: 1, backgroundColor: '#E2E8F0' }} />
+
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>CURRENT EXPECTED CASH</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--primary)', marginTop: 2 }}>
+              {formatCurrency(summary.expected_cash)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2-Column Split Layout for Desktop */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1.3fr',
+        gap: '24px',
+      }}>
+        {/* ================= LEFT COLUMN: SALES & NIGHT CLOSING ================= */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Card 1: Daily Sales Revenue */}
+          <div className="glass-card" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <TrendingUp size={18} color="var(--primary)" />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 15.5, fontWeight: 900, color: 'var(--text-main)' }}>2. Total Daily Sales</h3>
+                  <p style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>Cash Register + POS / bKash Receipts</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setCashSalesInput(record.sales?.cash_sales ? String(record.sales.cash_sales) : '');
+                  setDigitalSalesInput(record.sales?.digital_sales ? String(record.sales.digital_sales) : '');
+                  setSalesModalOpen(true);
+                }}
+                className="btn-primary"
+                style={{ padding: '8px 14px', fontSize: 12 }}
+              >
+                {record.sales?.total_sales ? 'Edit Sales' : '+ Record Sales'}
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div style={{ backgroundColor: '#F8FAFC', padding: 14, borderRadius: 12, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)' }}>Cash Sales</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-main)', marginTop: 4 }}>
+                  {formatCurrency(summary.cash_sales)}
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#F8FAFC', padding: 14, borderRadius: 12, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)' }}>Digital / bKash / Cards</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-main)', marginTop: 4 }}>
+                  {formatCurrency(summary.digital_sales)}
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingTop: 10,
+              borderTop: '1px solid #E2E8F0',
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>Total Gross Sales:</span>
+              <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--primary)' }}>
+                {formatCurrency(summary.total_sales)}
+              </span>
+            </div>
+          </div>
+
+          {/* Card 2: Cash Box & Night Closing Wizard */}
+          <div 
+            className="glass-card" 
+            style={{
+              padding: '20px',
+              borderColor: summary.has_closed ? 'rgba(5, 150, 105, 0.4)' : 'rgba(217, 119, 6, 0.4)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  backgroundColor: summary.has_closed ? 'var(--primary-light)' : 'var(--amber-light)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Moon size={18} color={summary.has_closed ? 'var(--primary)' : 'var(--amber)'} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 15.5, fontWeight: 900, color: 'var(--text-main)' }}>3. Cash Box & Night Closing</h3>
+                  <p style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>Physical cash count, float split & bank deposit</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setActualDrawerCash(String(record.night_closing?.actual_drawer_cash || summary.expected_cash));
+                  setNextDayFloat(String(record.night_closing?.next_day_opening_float !== undefined ? record.night_closing.next_day_opening_float : 0));
+                  setBankDeposit(String(record.night_closing?.bank_deposit !== undefined ? record.night_closing.bank_deposit : 0));
+                  setClosingModalOpen(true);
+                }}
+                style={{
+                  backgroundColor: summary.has_closed ? '#F1F5F9' : 'var(--amber)',
+                  color: summary.has_closed ? 'var(--text-main)' : '#FFF',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '8px 14px',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: summary.has_closed ? 'none' : '0 2px 8px rgba(217, 119, 6, 0.3)',
+                }}
+              >
+                {summary.has_closed ? 'Adjust Closing' : 'Start Closing'}
+              </button>
+            </div>
+
+            {summary.has_closed ? (
+              <div style={{ backgroundColor: '#F8FAFC', borderRadius: 14, padding: 16, border: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                  <CheckCircle2 size={18} color="var(--primary)" />
+                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--primary-dark)' }}>
+                    Night Closing Sealed by {summary.night_closing?.closed_by}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ backgroundColor: '#FFFFFF', padding: 12, borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Counted Physical Cash</div>
+                    <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--text-main)', marginTop: 2 }}>
+                      {formatCurrency(summary.night_closing?.actual_drawer_cash)}
+                    </div>
+                  </div>
+
+                  <div style={{ backgroundColor: '#FFFFFF', padding: 12, borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Tomorrow Float (কালকের জের)</div>
+                    <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--amber)', marginTop: 2 }}>
+                      {formatCurrency(summary.night_closing?.next_day_opening_float)}
+                    </div>
+                  </div>
+
+                  <div style={{ backgroundColor: '#FFFFFF', padding: 12, borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Bank Deposit (ব্যাংক জমা)</div>
+                    <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--cyan)', marginTop: 2 }}>
+                      {formatCurrency(summary.night_closing?.bank_deposit)}
+                    </div>
+                  </div>
+
+                  <div style={{ backgroundColor: '#FFFFFF', padding: 12, borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Retained Vault Reserve</div>
+                    <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--text-main)', marginTop: 2 }}>
+                      {formatCurrency(summary.night_closing?.retained_vault_reserve)}
+                    </div>
+                  </div>
+                </div>
+
+                {summary.night_closing?.bank_note ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, padding: 10, backgroundColor: 'var(--cyan-light)', borderRadius: 8, fontSize: 12, color: 'var(--cyan)', fontWeight: 700 }}>
+                    <Landmark size={14} />
+                    <span>{summary.night_closing.bank_note}</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div style={{ backgroundColor: '#F8FAFC', padding: 16, borderRadius: 14, border: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>System Expected Cash:</span>
+                  <span style={{ fontSize: 19, fontWeight: 900, color: 'var(--amber)' }}>{formatCurrency(summary.expected_cash)}</span>
+                </div>
+                <p style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  Formula: Float ({formatCurrency(summary.opening_float)}) + Cash Sales ({formatCurrency(summary.cash_sales)}) - Market & Payouts ({formatCurrency(summary.market_from_cash + summary.total_owner_drawings + summary.total_staff_advances)})
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ================= RIGHT COLUMN: MORNING BAZAR & PAYOUTS ================= */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Card 3: Morning Bazar / Market Register Table */}
+          <div className="glass-card" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: 'var(--rose-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ShoppingBag size={18} color="var(--rose)" />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 15.5, fontWeight: 900, color: 'var(--text-main)' }}>1. Morning Bazar / Market</h3>
+                  <p style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>Raw materials, meat, fish, groceries & vegetables</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setMarketModalOpen(true)}
+                style={{
+                  backgroundColor: 'var(--rose)',
+                  color: '#FFF',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '8px 14px',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(225, 29, 72, 0.3)',
+                }}
+              >
+                <Plus size={14} />
+                <span>+ Add Bazar Item</span>
+              </button>
+            </div>
+
+            {/* Search and Category Filter Bar */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                backgroundColor: '#F8FAFC',
+                border: '1px solid #E2E8F0',
+                borderRadius: 10,
+                padding: '6px 12px',
+              }}>
+                <Search size={14} color="var(--text-muted)" />
+                <input
+                  placeholder="Search item or buyer..."
+                  value={marketSearchQuery}
+                  onChange={(e) => setMarketSearchQuery(e.target.value)}
+                  style={{
+                    border: 'none',
+                    outline: 'none',
+                    background: 'transparent',
+                    width: '100%',
+                    fontSize: 12,
+                    color: 'var(--text-main)',
+                  }}
+                />
+              </div>
+
+              <select
+                value={marketCategoryFilter}
+                onChange={(e) => setMarketCategoryFilter(e.target.value)}
+                style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: 10,
+                  padding: '6px 10px',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  color: 'var(--text-secondary)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="ALL">All Categories</option>
+                <option value="MEAT_FISH">Meat & Fish</option>
+                <option value="GROCERY">Grocery</option>
+                <option value="PRODUCE">Produce / Veg</option>
+                <option value="DAIRY">Dairy</option>
+                <option value="PACKAGING">Packaging</option>
+              </select>
+            </div>
+
+            {/* Table of Bazar Items */}
+            {filteredMarketItems.length === 0 ? (
+              <div style={{ backgroundColor: '#F8FAFC', padding: 28, borderRadius: 12, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, border: '1px solid #E2E8F0' }}>
+                No bazar purchases found for this date.
+              </div>
+            ) : (
+              <div style={{ backgroundColor: '#F8FAFC', borderRadius: 12, padding: '6px 12px', border: '1px solid #E2E8F0' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12.5 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1.5px solid #E2E8F0', color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 4px' }}>Item Name</th>
+                      <th style={{ padding: '8px 4px' }}>Category</th>
+                      <th style={{ padding: '8px 4px' }}>Buyer</th>
+                      <th style={{ padding: '8px 4px' }}>Source</th>
+                      <th style={{ padding: '8px 4px', textAlign: 'right' }}>Amount</th>
+                      <th style={{ padding: '8px 4px', textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMarketItems.map((item) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: '10px 4px', fontWeight: 800, color: 'var(--text-main)' }}>{item.item_name}</td>
+                        <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>
+                          <span style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 700 }}>
+                            {item.category}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 4px', color: 'var(--text-secondary)' }}>{item.buyer}</td>
+                        <td style={{ padding: '10px 4px', color: 'var(--text-muted)', fontSize: 11 }}>
+                          {item.paid_from === 'CASH_DRAWER' ? 'Cash Box' : 'Owner Pocket'}
+                        </td>
+                        <td style={{ padding: '10px 4px', textAlign: 'right', fontWeight: 900, color: 'var(--rose)', fontSize: 13.5 }}>
+                          {formatCurrency(item.amount)}
+                        </td>
+                        <td style={{ padding: '10px 4px', textAlign: 'right' }}>
+                          <button
+                            onClick={() => setDeleteItemTarget({
+                              id: item.id,
+                              name: item.item_name,
+                              amount: formatCurrency(item.amount)
+                            })}
+                            style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 4 }}
+                            title="Delete item"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-secondary)' }}>Total Bazar Expenses ({record.morning_market?.length || 0} items):</span>
+                  <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--rose)' }}>
+                    {formatCurrency(summary.total_market)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Card 4: Withdrawals & Payouts Hub */}
+          <div className="glass-card" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: 'var(--purple-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Coins size={18} color="var(--purple)" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 15.5, fontWeight: 900, color: 'var(--text-main)' }}>4. Today's Withdrawals & Distributions</h3>
+                <p style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>Pocket money drawings, staff advances and bank deposits</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 12 }}>
+              <div style={{ backgroundColor: '#F8FAFC', padding: 14, borderRadius: 12, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>Pocket Money</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--purple)', marginTop: 4 }}>
+                  {formatCurrency(summary.total_owner_drawings)}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>{record.owner_drawings?.length || 0} withdrawals</div>
+              </div>
+
+              <div style={{ backgroundColor: '#F8FAFC', padding: 14, borderRadius: 12, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>Staff Advances</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--cyan)', marginTop: 4 }}>
+                  {formatCurrency(summary.total_staff_advances)}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>{record.staff_advances?.length || 0} staff loans</div>
+              </div>
+
+              <div style={{ backgroundColor: '#F8FAFC', padding: 14, borderRadius: 12, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>Bank Deposit</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--primary)', marginTop: 4 }}>
+                  {formatCurrency(summary.bank_deposit)}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>Night bank drop</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* --- MODAL 1: ADD MARKET ITEM --- */}
+      <DesktopModal
+        visible={marketModalOpen}
+        onClose={() => setMarketModalOpen(false)}
+        title="Add Morning Bazar / Market Entry"
+        subtitle="Record daily raw materials, meat, fish, and grocery supplies"
+      >
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Item Name & Quantity Description
+          </label>
+          <input
+            className="input-field"
+            placeholder="e.g. Beef 20kg, Polao Rice 50kg, Cooking Oil 10L"
+            value={marketItemName}
+            onChange={(e) => setMarketItemName(e.target.value)}
+          />
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Cost Amount (৳)
+          </label>
+          <input
+            type="number"
+            className="input-field"
+            placeholder="e.g. 12500"
+            value={marketAmount}
+            onChange={(e) => setMarketAmount(e.target.value)}
+          />
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Category
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {['MEAT_FISH', 'GROCERY', 'PRODUCE', 'DAIRY', 'PACKAGING'].map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setMarketCategory(cat)}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: marketCategory === cat ? 800 : 600,
+                  backgroundColor: marketCategory === cat ? 'var(--primary-light)' : '#F1F5F9',
+                  color: marketCategory === cat ? 'var(--primary-dark)' : 'var(--text-secondary)',
+                  border: `1.5px solid ${marketCategory === cat ? 'var(--primary)' : '#E2E8F0'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Purchased By (Partner)
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {(data.owners || []).map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => setMarketBuyer(o.name)}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: marketBuyer === o.name ? 800 : 600,
+                  backgroundColor: marketBuyer === o.name ? 'var(--primary-light)' : '#F1F5F9',
+                  color: marketBuyer === o.name ? 'var(--primary-dark)' : 'var(--text-secondary)',
+                  border: `1.5px solid ${marketBuyer === o.name ? 'var(--primary)' : '#E2E8F0'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                {o.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Paid From
+          </label>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {[
+              { id: 'CASH_DRAWER', label: 'Cash Drawer / Register' },
+              { id: 'OWNER_POCKET', label: 'Owner Pocket' }
+            ].map((src) => (
+              <button
+                key={src.id}
+                type="button"
+                onClick={() => setMarketPaidFrom(src.id)}
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  fontSize: 12.5,
+                  fontWeight: marketPaidFrom === src.id ? 800 : 600,
+                  backgroundColor: marketPaidFrom === src.id ? 'var(--primary-light)' : '#F1F5F9',
+                  color: marketPaidFrom === src.id ? 'var(--primary-dark)' : 'var(--text-secondary)',
+                  border: `1.5px solid ${marketPaidFrom === src.id ? 'var(--primary)' : '#E2E8F0'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                {src.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={handleSaveMarketItem}
+          className="btn-primary"
+          style={{ width: '100%', padding: '12px' }}
+        >
+          Save Market Entry
+        </button>
+      </DesktopModal>
+
+      {/* --- MODAL 2: EDIT SALES --- */}
+      <DesktopModal
+        visible={salesModalOpen}
+        onClose={() => setSalesModalOpen(false)}
+        title="Record Daily Sales Revenue"
+        subtitle="Update customer revenue receipts across Cash and Digital POS"
+      >
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Cash Sales (৳)
+          </label>
+          <input
+            type="number"
+            className="input-field"
+            placeholder="e.g. 45000"
+            value={cashSalesInput}
+            onChange={(e) => setCashSalesInput(e.target.value)}
+          />
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Digital / bKash / POS Sales (৳)
+          </label>
+          <input
+            type="number"
+            className="input-field"
+            placeholder="e.g. 12000"
+            value={digitalSalesInput}
+            onChange={(e) => setDigitalSalesInput(e.target.value)}
+          />
+        </div>
+
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          backgroundColor: '#F8FAFC',
+          border: '1px solid #E2E8F0',
+          padding: 14,
+          borderRadius: 12,
+          margin: '16px 0',
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>Calculated Total Gross:</span>
+          <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--primary)' }}>
+            {formatCurrency(Number(cashSalesInput || 0) + Number(digitalSalesInput || 0))}
+          </span>
+        </div>
+
+        <button
+          onClick={handleSaveSales}
+          className="btn-primary"
+          style={{ width: '100%', padding: '12px' }}
+        >
+          Update Sales Record
+        </button>
+      </DesktopModal>
+
+      {/* --- MODAL 3: NIGHT CLOSING WIZARD --- */}
+      <DesktopModal
+        visible={closingModalOpen}
+        onClose={() => setClosingModalOpen(false)}
+        title="Night Cash Closing & Drawer Settlement"
+        subtitle="Count physical drawer cash, allocate tomorrow's float, and deposit to bank"
+      >
+        <div style={{
+          backgroundColor: '#F8FAFC',
+          border: '1px solid #E2E8F0',
+          padding: 14,
+          borderRadius: 12,
+          textAlign: 'center',
+          marginBottom: 14,
+        }}>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>System Calculated Cash in Drawer</div>
+          <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--amber)', marginTop: 2 }}>
+            {formatCurrency(summary.expected_cash)}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            1. Counted Physical Cash in Drawer (৳)
+          </label>
+          <input
+            type="number"
+            className="input-field"
+            style={{ borderColor: 'var(--amber)' }}
+            placeholder="Enter counted physical cash"
+            value={actualDrawerCash}
+            onChange={(e) => setActualDrawerCash(e.target.value)}
+          />
+
+          {actualDrawerCash ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, fontSize: 12 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Reconciliation Variance:</span>
+              <span style={{
+                fontWeight: 800,
+                color: Number(actualDrawerCash) - summary.expected_cash >= 0 ? 'var(--primary)' : 'var(--rose)'
+              }}>
+                {formatCurrency(Number(actualDrawerCash) - summary.expected_cash, true)}
+                {Number(actualDrawerCash) === summary.expected_cash && ' (Balanced 100%)'}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              2. Next Day Opening Float (৳)
+            </label>
+            <input
+              type="number"
+              className="input-field"
+              placeholder="Enter amount"
+              value={nextDayFloat}
+              onChange={(e) => setNextDayFloat(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              3. Bank Deposit Amount (৳)
+            </label>
+            <input
+              type="number"
+              className="input-field"
+              placeholder="Enter amount"
+              value={bankDeposit}
+              onChange={(e) => setBankDeposit(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Bank Deposit Reference / Note
+          </label>
+          <input
+            className="input-field"
+            placeholder="e.g. Bank Cash Deposit / Mobile Banking"
+            value={bankNote}
+            onChange={(e) => setBankNote(e.target.value)}
+          />
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Closed By (Partner)
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {(data.owners || []).map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => setClosedBy(o.name)}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: closedBy === o.name ? 800 : 600,
+                  backgroundColor: closedBy === o.name ? 'var(--primary-light)' : '#F1F5F9',
+                  color: closedBy === o.name ? 'var(--primary-dark)' : 'var(--text-secondary)',
+                  border: `1.5px solid ${closedBy === o.name ? 'var(--primary)' : '#E2E8F0'}`,
+                  cursor: 'pointer',
+                }}
+              >
+                {o.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={handleSaveNightClosing}
+          className="btn-primary"
+          style={{ width: '100%', padding: '12px' }}
+        >
+          Seal Night Closing
+        </button>
+      </DesktopModal>
+    </div>
+  );
+};

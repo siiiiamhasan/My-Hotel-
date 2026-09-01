@@ -1,0 +1,11 @@
+{
+  "appId": "com.siamhasan.myhotel",
+  "appName": "My Hotel - Restaurant Manager",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Preferences": {}
+  }
+}
