@@ -40,9 +40,9 @@ export const DesktopApp = () => {
   const [quickMarketAmount, setQuickMarketAmount] = useState('');
   const [quickSalesCash, setQuickSalesCash] = useState('');
   const [quickSalesDigital, setQuickSalesDigital] = useState('');
-  const [quickDrawingOwnerId, setQuickDrawingOwnerId] = useState(data.owners?.[0]?.id || '');
+  const [quickDrawingOwnerId, setQuickDrawingOwnerId] = useState('');
   const [quickDrawingAmount, setQuickDrawingAmount] = useState('');
-  const [quickAdvanceStaffId, setQuickAdvanceStaffId] = useState(data.staff?.[0]?.id || '');
+  const [quickAdvanceStaffId, setQuickAdvanceStaffId] = useState('');
   const [quickAdvanceAmount, setQuickAdvanceAmount] = useState('');
 
   const handleBannerConnect = async () => {
@@ -326,7 +326,9 @@ export const DesktopApp = () => {
         <button
           onClick={() => {
             if (!quickDrawingAmount) return;
-            addOwnerDrawing(selectedDate, quickDrawingOwnerId, Number(quickDrawingAmount), 'Quick Pocket Money');
+            const ownerId = quickDrawingOwnerId || data.owners?.[0]?.id;
+            if (!ownerId) return;
+            addOwnerDrawing(selectedDate, ownerId, Number(quickDrawingAmount), 'Quick Pocket Money');
             setQuickDrawingAmount('');
             setQuickActionModal(null);
           }}
@@ -385,7 +387,9 @@ export const DesktopApp = () => {
         <button
           onClick={() => {
             if (!quickAdvanceAmount) return;
-            addStaffAdvance(selectedDate, quickAdvanceStaffId, Number(quickAdvanceAmount), 'Daily Advance');
+            const staffId = quickAdvanceStaffId || data.staff?.[0]?.id;
+            if (!staffId) return;
+            addStaffAdvance(selectedDate, staffId, Number(quickAdvanceAmount), 'Daily Advance');
             setQuickAdvanceAmount('');
             setQuickActionModal(null);
           }}

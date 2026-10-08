@@ -78,7 +78,8 @@ async function createFile(accessToken, data) {
   // Safety: Verify if file already exists before creating duplicate
   const existingId = await findFileId(accessToken);
   if (existingId) {
-    return await updateFile(accessToken, existingId, data);
+    const updatedId = await updateFile(accessToken, existingId, data);
+    return updatedId || existingId;
   }
 
   const fileContent = JSON.stringify(data, null, 2);

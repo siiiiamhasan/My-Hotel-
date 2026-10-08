@@ -1,3 +1,4 @@
+// IPC API bridge for Renderer process
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
@@ -20,12 +21,4 @@ contextBridge.exposeInMainWorld('api', {
   },
   getGoogleConfig: () => ipcRenderer.invoke('config:getGoogleConfig'),
   saveGoogleConfig: (config) => ipcRenderer.invoke('config:saveGoogleConfig', config),
-});
-
-// Legacy backward-compatibility bridge
-contextBridge.exposeInMainWorld('electronAuth', {
-  login: () => ipcRenderer.invoke('auth:signIn'),
-  getTokens: () => ipcRenderer.invoke('auth:getTokens'),
-  refreshToken: () => ipcRenderer.invoke('auth:refreshToken'),
-  logout: () => ipcRenderer.invoke('auth:signOut'),
 });
